@@ -2,7 +2,7 @@
   "name": "@laziest/utils",
   "private": false,
   "sideEffects": false,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "utils",
   "files": [
     "dist",
