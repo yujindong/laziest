@@ -1,0 +1,29 @@
+{
+  "name": "laziest",
+  "private": true,
+  "author": {
+    "name": "于金冬(Yu jindong)",
+    "url": "https://www.yujindong.com",
+    "email": "yujindong1985@gmail.com"
+  },
+  "homepage": "https://tools.yujindong.com",
+  "license": "MIT",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types",
+    "preinstall": "npx only-allow pnpm"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.4",
+    "prettier": "^3.5.3",
+    "turbo": "^2.5.4",
+    "typescript": "5.8.2"
+  },
+  "packageManager": "pnpm@10.10.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "name": "@laziest/utils",
+  "private": false,
+  "sideEffects": false,
+  "version": "0.0.0",
+  "description": "utils",
+  "files": [
+    "dist",
+    "package.json",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "keywords": [],
+  "author": "yujindong <yujindong1985@gmail.com>",
+  "license": "ISC",
+  "devDependencies": {
+    "@laziest/eslint-config": "workspace:^",
+    "@laziest/typescript-config": "workspace:^",
+    "eslint": "^9.28.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}
