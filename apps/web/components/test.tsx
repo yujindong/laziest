@@ -1,8 +1,7 @@
 "use client";
 
-import { useIsomorphicLayoutEffect, useResizeObserver } from "@laziest/hooks";
+import { useResizeObserver } from "@laziest/hooks";
 import { useRef } from "react";
-const useLayoutEffect = useIsomorphicLayoutEffect;
 
 const Test = () => {
   const ref = useRef<HTMLDivElement>(null);
