@@ -1,0 +1,18 @@
+{
+  "name": "laziest",
+  "private": true,
+  "type": "module",
+  "author": {
+    "name": "于金冬(YuJindong)",
+    "url": "https://www.yujindong.com",
+    "email": "yujindong1985@gmail.com"
+  },
+  "scripts": {
+    "build:web": "pnpm --filter @laziest/web build"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "devDependencies": {
+    "tsdown": "^0.21.7",
+    "typescript": "^6.0.2"
+  }
+}
