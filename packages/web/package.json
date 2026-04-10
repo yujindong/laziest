@@ -22,6 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown",
+    "test": "vitest run --passWithNoTests"
   }
 }

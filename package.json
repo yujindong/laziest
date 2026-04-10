@@ -8,10 +8,13 @@
     "email": "yujindong1985@gmail.com"
   },
   "scripts": {
-    "build:web": "pnpm --filter @laziest/web build"
+    "build:web": "pnpm --filter @laziest/web build",
+    "test:web": "pnpm --filter @laziest/web test"
   },
   "packageManager": "pnpm@10.33.0",
   "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4",
     "tsdown": "^0.21.7",
     "typescript": "^6.0.2"
   }
