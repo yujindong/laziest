@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { ResourceManager } from '../src'
+import { ResourceManager, ResourcePreloadError } from '../src'
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+
+  return { promise, resolve, reject }
+}
 
 describe('ResourceManager', () => {
   it('starts with an idle snapshot', () => {
@@ -120,5 +132,107 @@ describe('ResourceManager', () => {
     expect(nextSnapshot.recentlyCompleted[0].error?.message).toBe('boom')
     expect(nextSnapshot.errors[0].message).toBe('boom')
     expect(nextSnapshot.warnings[0].message).toBe('watch this')
+  })
+
+  it('normalizes bucket inputs into the total count', async () => {
+    const manager = new ResourceManager({
+      loaders: {
+        image: async () => undefined,
+        json: async () => ({ ok: true }),
+      },
+    })
+
+    await manager.preload({
+      images: ['/a.png', { url: '/b.png', optional: true }],
+      json: ['/data.json'],
+    })
+
+    expect(manager.getSnapshot()).toMatchObject({
+      status: 'completed',
+      total: 3,
+      succeeded: 3,
+      completed: 3,
+    })
+  })
+
+  it('reuses the active preload session while running', async () => {
+    const gate = deferred<void>()
+    const manager = new ResourceManager({
+      loaders: {
+        image: async () => {
+          await gate.promise
+        },
+      },
+    })
+
+    const first = manager.preload({ images: ['/hero.png'] })
+    const second = manager.preload({ images: ['/hero.png'] })
+
+    expect(first).toBe(second)
+
+    gate.resolve()
+    await first
+  })
+
+  it('rejects a different preload request while a session is running', async () => {
+    const gate = deferred<void>()
+    const manager = new ResourceManager({
+      loaders: {
+        image: async () => {
+          await gate.promise
+        },
+      },
+    })
+
+    const first = manager.preload({ images: ['/hero.png'] })
+    const second = manager.preload({ images: ['/different.png'] })
+
+    await expect(second).rejects.toThrow(
+      'ResourceManager.preload() called with different resources while a session is already running',
+    )
+
+    gate.resolve()
+    await first
+  })
+
+  it('marks a loader failure in the snapshot', async () => {
+    const manager = new ResourceManager({
+      loaders: {
+        json: async () => {
+          throw new Error('boom')
+        },
+      },
+    })
+
+    try {
+      await manager.preload({ json: ['/broken.json'] })
+      throw new Error('expected preload to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ResourcePreloadError)
+      expect((error as ResourcePreloadError).result).toMatchObject({
+        status: 'failed',
+        failed: 1,
+      })
+    }
+
+    expect(manager.getSnapshot()).toMatchObject({
+      status: 'failed',
+      total: 1,
+      failed: 1,
+      completed: 1,
+      recentlyCompleted: [
+        {
+          status: 'failed',
+          url: '/broken.json',
+        },
+      ],
+      errors: [
+        {
+          message: 'boom',
+          url: '/broken.json',
+          type: 'json',
+        },
+      ],
+    })
   })
 })

@@ -10,6 +10,26 @@ export type ResourceType =
   | 'text'
   | 'binary'
 
+export type ResourceBucketName =
+  | 'images'
+  | 'fonts'
+  | 'audio'
+  | 'video'
+  | 'lottie'
+  | 'json'
+  | 'text'
+  | 'binary'
+
+export type ResourceLoaderKey =
+  | 'image'
+  | 'font'
+  | 'audio'
+  | 'video'
+  | 'lottie'
+  | 'json'
+  | 'text'
+  | 'binary'
+
 export type ResourceManagerStatus =
   | 'idle'
   | 'running'
@@ -46,6 +66,86 @@ export interface ResourceWarning {
   message: string
   url?: string
   type?: ResourceType
+}
+
+export interface SharedResourceInput {
+  url: string
+  optional?: boolean
+}
+
+export type ImageResourceInput = string | SharedResourceInput
+
+export interface FontResourceInput extends SharedResourceInput {
+  family: string
+  descriptors?: FontFaceDescriptors
+}
+
+export type MediaResourceInput =
+  | string
+  | (SharedResourceInput & {
+      preload?: 'auto' | 'metadata' | 'none'
+      crossOrigin?: '' | 'anonymous' | 'use-credentials'
+    })
+
+export type DataResourceInput =
+  | string
+  | (SharedResourceInput & {
+      requestInit?: RequestInit
+    })
+
+export interface ResourceBuckets {
+  images?: ImageResourceInput[]
+  fonts?: FontResourceInput[]
+  audio?: MediaResourceInput[]
+  video?: MediaResourceInput[]
+  lottie?: DataResourceInput[]
+  json?: DataResourceInput[]
+  text?: DataResourceInput[]
+  binary?: DataResourceInput[]
+}
+
+export interface ResourceLoadContext {
+  signal: AbortSignal
+}
+
+export interface NormalizedResourceItem {
+  id: string
+  bucket: ResourceBucketName
+  type: ResourceType
+  loaderKey: ResourceLoaderKey
+  url: string
+  optional: boolean
+  dedupeKey: string
+  source: {
+    url: string
+    optional?: boolean
+    family?: string
+    descriptors?: FontFaceDescriptors
+    preload?: 'auto' | 'metadata' | 'none'
+    crossOrigin?: '' | 'anonymous' | 'use-credentials'
+    requestInit?: RequestInit
+  }
+  family?: string
+  descriptors?: FontFaceDescriptors
+  preload?: 'auto' | 'metadata' | 'none'
+  crossOrigin?: '' | 'anonymous' | 'use-credentials'
+  requestInit?: RequestInit
+}
+
+export type ResourceLoader = (
+  item: NormalizedResourceItem,
+  context: ResourceLoadContext,
+) => PromiseLike<unknown> | unknown
+
+export interface ResourceLoaderRegistry {
+  image: ResourceLoader
+  font: ResourceLoader
+  audio: ResourceLoader
+  video: ResourceLoader
+  lottie: ResourceLoader
+  json: ResourceLoader
+  text: ResourceLoader
+  binary: ResourceLoader
 }
 
 export interface ResourceFailure {
@@ -96,8 +196,7 @@ export interface ResourceManagerSnapshot {
   warnings: ResourceWarning[]
 }
 
-export interface PreloadResult {
-  status: 'completed' | 'failed' | 'aborted'
+export interface BasePreloadResult {
   total: number
   succeeded: number
   failed: number
@@ -108,9 +207,27 @@ export interface PreloadResult {
   warnings: ResourceWarning[]
 }
 
+export interface CompletedPreloadResult extends BasePreloadResult {
+  status: 'completed'
+}
+
+export interface FailedPreloadResult extends BasePreloadResult {
+  status: 'failed'
+}
+
+export interface AbortedPreloadResult extends BasePreloadResult {
+  status: 'aborted'
+}
+
+export type PreloadResult =
+  | CompletedPreloadResult
+  | FailedPreloadResult
+  | AbortedPreloadResult
+
 export interface ResourceManagerOptions {
   concurrency?: number
   logLevel?: LogLevel
   resetClearsCache?: boolean
   logger?: ResourceLogger
+  loaders?: Partial<ResourceLoaderRegistry>
 }
