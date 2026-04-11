@@ -68,6 +68,14 @@ export interface ResourceWarning {
   type?: ResourceType
 }
 
+export type RetryBackoff = 'fixed' | 'linear' | 'exponential'
+
+export interface RetryOptions {
+  maxRetries?: number
+  delayMs?: number
+  backoff?: RetryBackoff
+}
+
 export interface SharedResourceInput {
   url: string
   optional?: boolean
@@ -227,6 +235,7 @@ export type PreloadResult =
 export interface ResourceManagerOptions {
   concurrency?: number
   logLevel?: LogLevel
+  retry?: RetryOptions
   resetClearsCache?: boolean
   logger?: ResourceLogger
   loaders?: Partial<ResourceLoaderRegistry>

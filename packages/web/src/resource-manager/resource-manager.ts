@@ -1,6 +1,5 @@
 import type {
   NormalizedResourceItem,
-  ResourceFailure,
   ResourceBuckets,
   ResourceLoaderRegistry,
   ResourceManagerOptions,
@@ -13,7 +12,16 @@ import {
   createNormalizedResourceSignature,
   normalizeResourceBuckets,
 } from './normalize'
-import { ResourcePreloadError } from './errors'
+import {
+  createResourceFailure,
+  createResourceSkippedWarning,
+  ResourcePreloadError,
+} from './errors'
+import {
+  getRetryDelayMs,
+  shouldRetryFailure,
+  waitForRetryDelay,
+} from './retry'
 
 function createIdleSnapshot(): ResourceManagerSnapshot {
   return {
@@ -63,49 +71,19 @@ function createItemSnapshot(
   status: ResourceItemSnapshot['status'],
   startedAt: number | null,
   endedAt: number | null,
+  attempt: number,
 ): ResourceItemSnapshot {
   return {
     id: item.id,
     url: item.url,
     type: item.type,
     status,
-    attempt: 1,
+    attempt,
     startedAt,
     endedAt,
     duration:
       startedAt !== null && endedAt !== null ? endedAt - startedAt : null,
     fromCache: false,
-  }
-}
-
-function createFailureSnapshot(
-  item: NormalizedResourceItem,
-  startedAt: number,
-  endedAt: number,
-  error: unknown,
-): {
-  item: ResourceItemSnapshot
-  failure: ResourceFailure
-} {
-  const message = error instanceof Error ? error.message : 'Resource load failed'
-  const failure: ResourceFailure = {
-    category: 'unknown',
-    code: 'unknown',
-    retriable: false,
-    message,
-    cause: error,
-    url: item.url,
-    type: item.type,
-    attempt: 1,
-  }
-
-  return {
-    item: {
-      ...createItemSnapshot(item, 'failed', startedAt, endedAt),
-      message,
-      error: failure,
-    },
-    failure,
   }
 }
 
@@ -157,6 +135,38 @@ function createPreloadResult(
     items: snapshot.recentlyCompleted.map(cloneItemSnapshot),
     errors: snapshot.errors.map((error) => ({ ...error })),
     warnings: snapshot.warnings.map((warning) => ({ ...warning })),
+  }
+}
+
+function updateActiveItemSnapshot(
+  snapshot: ResourceManagerSnapshot,
+  itemSnapshot: ResourceItemSnapshot,
+): ResourceManagerSnapshot {
+  return {
+    ...snapshot,
+    activeItems: snapshot.activeItems.map((active) =>
+      active.id === itemSnapshot.id ? itemSnapshot : active,
+    ),
+  }
+}
+
+function appendCompletedItem(
+  snapshot: ResourceManagerSnapshot,
+  itemSnapshot: ResourceItemSnapshot,
+  updates: Partial<
+    Pick<ResourceManagerSnapshot, 'succeeded' | 'failed' | 'skipped'>
+  >,
+): ResourceManagerSnapshot {
+  return {
+    ...snapshot,
+    ...updates,
+    completed: snapshot.completed + 1,
+    progress:
+      snapshot.total === 0 ? 0 : (snapshot.completed + 1) / snapshot.total,
+    activeItems: snapshot.activeItems.filter(
+      (active) => active.id !== itemSnapshot.id,
+    ),
+    recentlyCompleted: [...snapshot.recentlyCompleted, itemSnapshot],
   }
 }
 
@@ -260,66 +270,91 @@ export class ResourceManager {
 
   private async runItem(item: NormalizedResourceItem): Promise<void> {
     const startedAt = Date.now()
-    const loadingSnapshot = createItemSnapshot(
-      item,
-      'loading',
-      startedAt,
-      null,
-    )
+    let attempt = 0
 
     this.snapshot = {
       ...this.snapshot,
       queued: Math.max(0, this.snapshot.queued - 1),
       loading: this.snapshot.loading + 1,
-      activeItems: [...this.snapshot.activeItems, loadingSnapshot],
+      activeItems: [
+        ...this.snapshot.activeItems,
+        createItemSnapshot(item, 'loading', startedAt, null, 1),
+      ],
     }
 
     const loader = this.loaders[item.loaderKey]
-    try {
-      await loader(item, {
-        signal: new AbortController().signal,
-      })
-    } catch (error) {
-      const endedAt = Date.now()
-      const { item: failedItem, failure } = createFailureSnapshot(
-        item,
-        startedAt,
-        endedAt,
-        error,
+    while (true) {
+      attempt += 1
+      this.snapshot = updateActiveItemSnapshot(
+        this.snapshot,
+        createItemSnapshot(item, 'loading', startedAt, null, attempt),
       )
 
-      this.snapshot = {
-        ...this.snapshot,
-        loading: Math.max(0, this.snapshot.loading - 1),
-        failed: this.snapshot.failed + 1,
-        completed: this.snapshot.completed + 1,
-        progress:
-          this.snapshot.total === 0 ? 0 : (this.snapshot.completed + 1) / this.snapshot.total,
-        activeItems: this.snapshot.activeItems.filter((active) => active.id !== item.id),
-        recentlyCompleted: [...this.snapshot.recentlyCompleted, failedItem],
-        errors: [...this.snapshot.errors, failure],
+      try {
+        await loader(item, {
+          signal: new AbortController().signal,
+        })
+
+        const endedAt = Date.now()
+        const succeededSnapshot = createItemSnapshot(
+          item,
+          'succeeded',
+          startedAt,
+          endedAt,
+          attempt,
+        )
+
+        this.snapshot = {
+          ...appendCompletedItem(this.snapshot, succeededSnapshot, {
+            succeeded: this.snapshot.succeeded + 1,
+          }),
+          loading: Math.max(0, this.snapshot.loading - 1),
+        }
+        return
+      } catch (error) {
+        const failure = createResourceFailure(item, error, attempt)
+
+        if (shouldRetryFailure(failure, attempt, this.options.retry)) {
+          const delayMs = getRetryDelayMs(attempt, this.options.retry)
+          await waitForRetryDelay(delayMs)
+          continue
+        }
+
+        const endedAt = Date.now()
+
+        if (item.optional) {
+          const warning = createResourceSkippedWarning(failure)
+          const skippedItem = {
+            ...createItemSnapshot(item, 'skipped', startedAt, endedAt, attempt),
+            message: warning.message,
+          }
+
+          this.snapshot = {
+            ...appendCompletedItem(this.snapshot, skippedItem, {
+              skipped: this.snapshot.skipped + 1,
+            }),
+            loading: Math.max(0, this.snapshot.loading - 1),
+            warnings: [...this.snapshot.warnings, warning],
+          }
+          return
+        }
+
+        const failedItem = {
+          ...createItemSnapshot(item, 'failed', startedAt, endedAt, attempt),
+          message: failure.message,
+          error: failure,
+        }
+
+        this.snapshot = {
+          ...appendCompletedItem(this.snapshot, failedItem, {
+            failed: this.snapshot.failed + 1,
+          }),
+          loading: Math.max(0, this.snapshot.loading - 1),
+          errors: [...this.snapshot.errors, failure],
+        }
+
+        throw error
       }
-
-      throw error
-    }
-
-    const endedAt = Date.now()
-    const succeededSnapshot = createItemSnapshot(
-      item,
-      'succeeded',
-      startedAt,
-      endedAt,
-    )
-
-    this.snapshot = {
-      ...this.snapshot,
-      loading: Math.max(0, this.snapshot.loading - 1),
-      succeeded: this.snapshot.succeeded + 1,
-      completed: this.snapshot.completed + 1,
-      progress:
-        this.snapshot.total === 0 ? 0 : (this.snapshot.completed + 1) / this.snapshot.total,
-      activeItems: this.snapshot.activeItems.filter((active) => active.id !== item.id),
-      recentlyCompleted: [...this.snapshot.recentlyCompleted, succeededSnapshot],
     }
   }
 }
