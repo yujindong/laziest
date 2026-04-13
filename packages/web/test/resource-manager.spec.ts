@@ -8,6 +8,14 @@ import {
 import { deferred } from './helpers/deferred'
 
 describe('ResourceManager', () => {
+  it('runs package setup before this suite', () => {
+    expect(
+      (globalThis as typeof globalThis & {
+        __LAZIEST_WEB_TEST_SETUP__?: boolean
+      }).__LAZIEST_WEB_TEST_SETUP__,
+    ).toBe(true)
+  })
+
   it('exports the public package api from the root entrypoint', () => {
     expect(ResourceManager).toBeTypeOf('function')
     expect(ResourcePreloadError).toBeTypeOf('function')
