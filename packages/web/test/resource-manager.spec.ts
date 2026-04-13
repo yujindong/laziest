@@ -1,17 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ResourceManager, ResourcePreloadError } from '../src'
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res
-    reject = rej
-  })
-
-  return { promise, resolve, reject }
-}
+import { deferred } from './helpers/deferred'
 
 describe('ResourceManager', () => {
   it('starts with an idle snapshot', () => {
@@ -518,6 +507,92 @@ describe('ResourceManager', () => {
 
     gate.resolve()
     await first
+  })
+
+  it('never exceeds the configured concurrency window', async () => {
+    const gates = [deferred<void>(), deferred<void>(), deferred<void>()]
+    let active = 0
+    let maxActive = 0
+
+    const manager = new ResourceManager({
+      concurrency: 2,
+      loaders: {
+        image: async ({ url }) => {
+          const index = Number(url.match(/(\d+)/)?.[1]) - 1
+          active += 1
+          maxActive = Math.max(maxActive, active)
+          await gates[index].promise
+          active -= 1
+        },
+      },
+    })
+
+    const pending = manager.preload({
+      images: ['/1.png', '/2.png', '/3.png'],
+    })
+
+    gates[0].resolve()
+    gates[1].resolve()
+    gates[2].resolve()
+    await pending
+
+    expect(maxActive).toBe(2)
+  })
+
+  it('deduplicates repeated resources inside one active session', async () => {
+    let calls = 0
+    const gate = deferred<void>()
+    const manager = new ResourceManager({
+      loaders: {
+        image: async () => {
+          calls += 1
+          await gate.promise
+        },
+      },
+    })
+
+    const pending = manager.preload({
+      images: ['/hero.png', '/hero.png'],
+    })
+
+    gate.resolve()
+    await pending
+
+    expect(calls).toBe(1)
+  })
+
+  it('reuses successful resources on later preload calls', async () => {
+    let calls = 0
+    const manager = new ResourceManager({
+      loaders: {
+        image: async () => {
+          calls += 1
+        },
+      },
+    })
+
+    await manager.preload({ images: ['/hero.png'] })
+    await manager.preload({ images: ['/hero.png'] })
+
+    expect(calls).toBe(1)
+  })
+
+  it('reloads a successful resource after reset when resetClearsCache is true', async () => {
+    let calls = 0
+    const manager = new ResourceManager({
+      resetClearsCache: true,
+      loaders: {
+        image: async () => {
+          calls += 1
+        },
+      },
+    })
+
+    await manager.preload({ images: ['/hero.png'] })
+    manager.reset()
+    await manager.preload({ images: ['/hero.png'] })
+
+    expect(calls).toBe(2)
   })
 
   it('marks a loader failure in the snapshot', async () => {
