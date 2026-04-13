@@ -15,6 +15,7 @@ import {
   normalizeResourceBuckets,
 } from './normalize'
 import { consoleResourceLogger, createFilteredResourceLogger } from './logger'
+import { createLoaderRegistry } from './loaders'
 import { PreloadSession } from './session'
 
 function createIdleSnapshot(): ResourceManagerSnapshot {
@@ -34,21 +35,6 @@ function createIdleSnapshot(): ResourceManagerSnapshot {
     recentlyCompleted: [],
     errors: [],
     warnings: [],
-  }
-}
-
-function createDefaultLoaders(): ResourceLoaderRegistry {
-  const noop = async () => undefined
-
-  return {
-    image: noop,
-    font: noop,
-    audio: noop,
-    video: noop,
-    lottie: noop,
-    json: noop,
-    text: noop,
-    binary: noop,
   }
 }
 
@@ -123,7 +109,7 @@ export class ResourceManager {
     this.options = options
     this.snapshot = createIdleSnapshot()
     this.loaders = {
-      ...createDefaultLoaders(),
+      ...createLoaderRegistry(),
       ...options.loaders,
     }
     this.logger = createFilteredResourceLogger(
