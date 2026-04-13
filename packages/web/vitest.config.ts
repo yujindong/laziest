@@ -9,7 +9,7 @@ export default defineConfig({
     include: ["test/**/*.spec.ts"],
     coverage: {
       provider: "v8",
-      reporters: ["text", "html"],
+      reporter: ["text", "html"],
       reportsDirectory: "./coverage",
       include: ["src/**/*.ts"],
     },
