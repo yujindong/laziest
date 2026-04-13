@@ -1,7 +1,18 @@
-declare global {
-  var __LAZIEST_WEB_TEST_SETUP__: boolean
+import { expect } from 'vitest'
+
+declare module 'vitest' {
+  interface Assertion<T = any> {
+    toHaveWebTestSetup(): void
+  }
 }
 
-globalThis.__LAZIEST_WEB_TEST_SETUP__ = true
+expect.extend({
+  toHaveWebTestSetup() {
+    return {
+      pass: true,
+      message: () => 'expected web test setup matcher to be registered',
+    }
+  },
+})
 
 export {}
