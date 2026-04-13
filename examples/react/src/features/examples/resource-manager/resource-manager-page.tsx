@@ -1,8 +1,8 @@
 import { ResourceManager, type ResourceBuckets } from "@laziest/web";
-import { useEffect, useEffectEvent } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 const img1List = [
-  "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/title.png",
+  "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/11title.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/cover.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/answer_wrong.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/answer_right.png",
@@ -52,40 +52,42 @@ const img2List = [
 ];
 
 const manifest: ResourceBuckets = {
-  images: [...img1List, ...img2List],
+  images: [...img1List, ...img2List].map((url) => ({ url, optional: true })),
   fonts: [
     {
       url: "https://pintu-image.go.sohu.com/activities/fonts/FZLTDHK.TTF",
       family: "方正兰亭大黑",
+      optional: true,
     },
   ],
 
   video: [
-    "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-2604081100.mp4",
+    "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-12604081100.mp4",
     "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/loop-2604081100.mp4",
-  ],
+  ].map((url) => ({ url, optional: true })),
 };
 const resourceManager = new ResourceManager({
   concurrency: 3,
   logLevel: "debug",
 });
 const ResourceManagerPage = () => {
+  const [progress, setProgress] = useState(0);
   const preload = useEffectEvent(async () => {
     await resourceManager.preload(manifest);
   });
   useEffect(() => {
-    resourceManager.subscribe((item) => {
-      console.log(item.snapshot.progress);
-      if (item.event.type === "session-started") {
-        console.log(item.event.total);
-      }
-      if (item.event.type === "item-succeeded") {
-        console.log(item.event.item.url);
-      }
-    });
     preload();
   }, []);
-  return <div>dang qian</div>;
+  useEffect(() => {
+    return resourceManager.subscribe((item) => {
+      setProgress(item.snapshot.progress);
+    });
+  }, []);
+  return (
+    <div>
+      <progress className="w-full text-red-500" value={progress} />
+    </div>
+  );
 };
 
 export default ResourceManagerPage;
