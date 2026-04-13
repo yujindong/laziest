@@ -1,5 +1,6 @@
 import { isRetriableStatus, isRetriableTypeError } from './retry'
 import type {
+  AbortedPreloadResult,
   FailedPreloadResult,
   NormalizedResourceItem,
   ResourceFailure,
@@ -7,9 +8,12 @@ import type {
 } from './types'
 
 export class ResourcePreloadError extends Error {
-  readonly result: FailedPreloadResult
+  readonly result: FailedPreloadResult | AbortedPreloadResult
 
-  constructor(message: string, result: FailedPreloadResult) {
+  constructor(
+    message: string,
+    result: FailedPreloadResult | AbortedPreloadResult,
+  ) {
     super(message)
     this.name = 'ResourcePreloadError'
     this.result = result

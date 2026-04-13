@@ -204,6 +204,80 @@ export interface ResourceManagerSnapshot {
   warnings: ResourceWarning[]
 }
 
+export interface ResourceSessionStartedEvent {
+  type: 'session-started'
+  startedAt: number
+  total: number
+}
+
+export interface ResourceItemSucceededEvent {
+  type: 'item-succeeded'
+  item: ResourceItemSnapshot
+}
+
+export interface ResourceItemStartedEvent {
+  type: 'item-started'
+  item: ResourceItemSnapshot
+}
+
+export interface ResourceItemRetryingEvent {
+  type: 'item-retrying'
+  item: ResourceItemSnapshot
+  failure: ResourceFailure
+  retryAfterMs: number
+}
+
+export interface ResourceItemFailedEvent {
+  type: 'item-failed'
+  item: ResourceItemSnapshot
+  failure: ResourceFailure
+}
+
+export interface ResourceWarningEvent {
+  type: 'warning'
+  warning: ResourceWarning
+}
+
+export interface ResourceSessionCompletedEvent {
+  type: 'session-completed'
+  result: CompletedPreloadResult
+}
+
+export interface ResourceSessionFailedEvent {
+  type: 'session-failed'
+  result: FailedPreloadResult
+}
+
+export interface ResourceSessionAbortedEvent {
+  type: 'session-aborted'
+  result: AbortedPreloadResult
+}
+
+export interface ResourceSessionResetEvent {
+  type: 'session-reset'
+}
+
+export type ResourceManagerEvent =
+  | ResourceSessionStartedEvent
+  | ResourceItemStartedEvent
+  | ResourceItemSucceededEvent
+  | ResourceItemRetryingEvent
+  | ResourceItemFailedEvent
+  | ResourceWarningEvent
+  | ResourceSessionCompletedEvent
+  | ResourceSessionFailedEvent
+  | ResourceSessionAbortedEvent
+  | ResourceSessionResetEvent
+
+export interface ResourceManagerEventPayload {
+  snapshot: ResourceManagerSnapshot
+  event: ResourceManagerEvent
+}
+
+export type ResourceManagerSubscriber = (
+  payload: ResourceManagerEventPayload,
+) => void
+
 export interface BasePreloadResult {
   total: number
   succeeded: number
