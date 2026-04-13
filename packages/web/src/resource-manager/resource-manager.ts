@@ -70,6 +70,7 @@ function cloneResourceManagerEvent(event: ResourceManagerEvent): ResourceManager
     case 'session-started':
       return { ...event }
     case 'item-started':
+    case 'item-progress':
     case 'item-succeeded':
     case 'item-retrying':
     case 'item-failed':
@@ -189,6 +190,10 @@ export class ResourceManager {
 
     if (this.activeSession) {
       if (this.activeSessionSignature === signature) {
+        this.logger.info('Resource preload reused active session', {
+          total: items.length,
+          signature,
+        })
         return this.activeSession.promise
       }
 

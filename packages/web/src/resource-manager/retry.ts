@@ -44,11 +44,20 @@ export function shouldRetryFailure(
   attempt: number,
   options: RetryOptions | undefined,
 ): boolean {
+  if (options?.shouldRetry) {
+    return options.shouldRetry(failure, attempt)
+  }
+
+  const normalized = normalizeRetryOptions(options)
+
+  if (failure.category === 'unknown') {
+    return attempt <= 1
+  }
+
   if (!failure.retriable) {
     return false
   }
 
-  const normalized = normalizeRetryOptions(options)
   return attempt <= normalized.maxRetries
 }
 

@@ -68,12 +68,18 @@ export interface ResourceWarning {
   type?: ResourceType
 }
 
+export interface ResourceTransfer {
+  loadedBytes: number
+  totalBytes?: number
+}
+
 export type RetryBackoff = 'fixed' | 'linear' | 'exponential'
 
 export interface RetryOptions {
   maxRetries?: number
   delayMs?: number
   backoff?: RetryBackoff
+  shouldRetry?: (failure: ResourceFailure, attempt: number) => boolean
 }
 
 export interface SharedResourceInput {
@@ -114,6 +120,7 @@ export interface ResourceBuckets {
 
 export interface ResourceLoadContext {
   signal: AbortSignal
+  onProgress?: (transfer: ResourceTransfer) => void
 }
 
 export interface NormalizedResourceItem {
@@ -179,7 +186,7 @@ export interface ResourceItemSnapshot {
   duration: number | null
   fromCache: boolean
   transfer?: {
-    loadedBytes?: number
+    loadedBytes: number
     totalBytes?: number
   }
   message?: string
@@ -217,6 +224,11 @@ export interface ResourceItemSucceededEvent {
 
 export interface ResourceItemStartedEvent {
   type: 'item-started'
+  item: ResourceItemSnapshot
+}
+
+export interface ResourceItemProgressEvent {
+  type: 'item-progress'
   item: ResourceItemSnapshot
 }
 
@@ -260,6 +272,7 @@ export interface ResourceSessionResetEvent {
 export type ResourceManagerEvent =
   | ResourceSessionStartedEvent
   | ResourceItemStartedEvent
+  | ResourceItemProgressEvent
   | ResourceItemSucceededEvent
   | ResourceItemRetryingEvent
   | ResourceItemFailedEvent

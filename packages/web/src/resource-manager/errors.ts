@@ -1,4 +1,5 @@
 import { isRetriableStatus, isRetriableTypeError } from './retry'
+import { isResourceLoaderError } from './loaders/types'
 import type {
   AbortedPreloadResult,
   FailedPreloadResult,
@@ -89,6 +90,21 @@ export function createResourceFailure(
       code: 'NETWORK_ERROR',
       retriable: true,
       message: cause.message || 'Network error',
+      cause,
+      url: item.url,
+      type: item.type,
+      attempt,
+    }
+  }
+
+  if (isResourceLoaderError(cause)) {
+    const category = cause.resourceFailureCategory
+
+    return {
+      category,
+      code: category === 'parse' ? 'PARSE_ERROR' : 'DECODE_ERROR',
+      retriable: false,
+      message: cause.message || 'Resource load failed',
       cause,
       url: item.url,
       type: item.type,

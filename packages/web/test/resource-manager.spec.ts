@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ResourceManager, ResourcePreloadError } from '../src'
+import {
+  ResourceManager,
+  ResourcePreloadError,
+  consoleResourceLogger,
+  shouldLog,
+} from '../src'
 import { deferred } from './helpers/deferred'
 
 describe('ResourceManager', () => {
+  it('exports the public package api from the root entrypoint', () => {
+    expect(ResourceManager).toBeTypeOf('function')
+    expect(ResourcePreloadError).toBeTypeOf('function')
+    expect(consoleResourceLogger).toBeTypeOf('object')
+    expect(shouldLog).toBeTypeOf('function')
+  })
+
   it('starts with an idle snapshot', () => {
     const manager = new ResourceManager()
 
@@ -471,7 +483,15 @@ describe('ResourceManager', () => {
 
   it('reuses the active preload session while running', async () => {
     const gate = deferred<void>()
+    const logger = {
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      debug: vi.fn(),
+    }
     const manager = new ResourceManager({
+      logLevel: 'info',
+      logger,
       loaders: {
         image: async () => {
           await gate.promise
@@ -483,6 +503,12 @@ describe('ResourceManager', () => {
     const second = manager.preload({ images: ['/hero.png'] })
 
     expect(first).toBe(second)
+    expect(logger.info).toHaveBeenCalledWith(
+      'Resource preload reused active session',
+      expect.objectContaining({
+        total: 1,
+      }),
+    )
 
     gate.resolve()
     await first

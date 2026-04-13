@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ResourceManager, ResourcePreloadError } from '../src'
 
 describe('retry and error handling', () => {
@@ -95,7 +95,7 @@ describe('retry and error handling', () => {
     expect(attempts).toBe(3)
   })
 
-  it('does not retry a deterministic TypeError', async () => {
+  it('retries a deterministic TypeError once when it is classified as unknown', async () => {
     let attempts = 0
     const manager = new ResourceManager({
       retry: { maxRetries: 2, delayMs: 0, backoff: 'fixed' },
@@ -116,10 +116,98 @@ describe('retry and error handling', () => {
       expect(error).toBeInstanceOf(ResourcePreloadError)
       expect((error as ResourcePreloadError).result.errors[0]).toMatchObject({
         code: 'unknown',
+        attempt: 2,
+      })
+    }
+
+    expect(attempts).toBe(2)
+  })
+
+  it('retries an unknown failure once by default', async () => {
+    let attempts = 0
+    const manager = new ResourceManager({
+      retry: { delayMs: 0, backoff: 'fixed' },
+      loaders: {
+        json: async () => {
+          attempts += 1
+          if (attempts < 2) {
+            throw new Error('mystery failure')
+          }
+
+          return { ok: true }
+        },
+      },
+    })
+
+    const result = await manager.preload({ json: ['/unknown.json'] })
+
+    expect(result.succeeded).toBe(1)
+    expect(attempts).toBe(2)
+  })
+
+  it('allows a custom retry policy to override the default unknown retry', async () => {
+    let attempts = 0
+    const manager = new ResourceManager({
+      retry: {
+        delayMs: 0,
+        backoff: 'fixed',
+        shouldRetry: () => false,
+      },
+      loaders: {
+        json: async () => {
+          attempts += 1
+          throw new Error('mystery failure')
+        },
+      },
+    })
+
+    try {
+      await manager.preload({ json: ['/custom-policy.json'] })
+      throw new Error('expected preload to reject')
+    } catch (error) {
+      expect(error).toBeInstanceOf(ResourcePreloadError)
+      expect((error as ResourcePreloadError).result.errors[0]).toMatchObject({
+        code: 'unknown',
         attempt: 1,
       })
     }
 
     expect(attempts).toBe(1)
+  })
+
+  it('logs retry activity at info level', async () => {
+    let attempts = 0
+    const logger = {
+      error: vi.fn(),
+      warn: vi.fn(),
+      info: vi.fn(),
+      debug: vi.fn(),
+    }
+
+    const manager = new ResourceManager({
+      logLevel: 'info',
+      logger,
+      retry: { maxRetries: 1, delayMs: 0, backoff: 'fixed' },
+      loaders: {
+        json: async () => {
+          attempts += 1
+          if (attempts < 2) {
+            throw new TypeError('Failed to fetch')
+          }
+
+          return { ok: true }
+        },
+      },
+    })
+
+    await manager.preload({ json: ['/retry-log.json'] })
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Resource item retrying',
+      expect.objectContaining({
+        attempt: 1,
+        retryAfterMs: 0,
+      }),
+    )
   })
 })

@@ -11,6 +11,7 @@ import type {
   ResourceManagerOptions,
   ResourceManagerSnapshot,
   FailedPreloadResult,
+  ResourceTransfer,
 } from './types'
 
 interface ResourceSessionHost {
@@ -71,6 +72,7 @@ function createItemSnapshot(
   endedAt: number | null,
   attempt: number,
   fromCache = false,
+  transfer?: ResourceTransfer,
 ): ResourceItemSnapshot {
   return {
     id: item.id,
@@ -83,7 +85,39 @@ function createItemSnapshot(
     duration:
       startedAt !== null && endedAt !== null ? endedAt - startedAt : null,
     fromCache,
+    transfer,
   }
+}
+
+function updateActiveItemsTransfer(
+  snapshot: ResourceManagerSnapshot,
+  group: WorkGroup,
+  transfer: ResourceTransfer,
+): { snapshot: ResourceManagerSnapshot; item: ResourceItemSnapshot | null } {
+  let item: ResourceItemSnapshot | null = null
+  const activeItemIds = new Set(group.items.map((groupItem) => groupItem.id))
+
+  const nextSnapshot: ResourceManagerSnapshot = {
+    ...snapshot,
+    activeItems: snapshot.activeItems.map((activeItem) => {
+      if (!activeItemIds.has(activeItem.id)) {
+        return activeItem
+      }
+
+      const nextActiveItem = {
+        ...activeItem,
+        transfer: { ...transfer },
+      }
+
+      if (!item) {
+        item = nextActiveItem
+      }
+
+      return nextActiveItem
+    }),
+  }
+
+  return { snapshot: nextSnapshot, item }
 }
 
 function appendCompletedItem(
@@ -464,12 +498,34 @@ export class PreloadSession implements PreloadSessionHandle {
 
     while (true) {
       attempt += 1
+      const onProgress = (transfer: ResourceTransfer) => {
+        if (!this.isRunning()) {
+          return
+        }
+
+        const { snapshot, item } = updateActiveItemsTransfer(
+          this.snapshot,
+          group,
+          transfer,
+        )
+
+        if (!item) {
+          return
+        }
+
+        this.setSnapshot(snapshot)
+        this.emit({
+          type: 'item-progress',
+          item: cloneItemSnapshot(item),
+        })
+      }
 
       try {
         await raceWithAbort(
           Promise.resolve(
             loader(group.items[0], {
               signal: this.controller.signal,
+              onProgress,
             }),
           ),
           this.controller.signal,
@@ -486,7 +542,7 @@ export class PreloadSession implements PreloadSessionHandle {
 
         if (shouldRetryFailure(failure, attempt, this.host.options.retry)) {
           const retryAfterMs = getRetryDelayMs(attempt, this.host.options.retry)
-          this.host.logger.debug('Resource item retrying', {
+          this.host.logger.info('Resource item retrying', {
             item: group.items[0].url,
             attempt,
             retryAfterMs,

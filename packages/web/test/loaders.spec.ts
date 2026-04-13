@@ -276,4 +276,91 @@ describe('built-in loaders', () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('deduplicates data resources with equivalent Headers request init', async () => {
+    let calls = 0
+    const manager = new ResourceManager({
+      loaders: {
+        json: async () => {
+          calls += 1
+          return { ok: true }
+        },
+      },
+    })
+
+    const requestInitA = {
+      method: 'POST',
+      headers: new Headers([
+        ['Accept', 'application/json'],
+        ['X-Trace', 'alpha'],
+      ]),
+      body: JSON.stringify({ ok: true }),
+    }
+    const requestInitB = {
+      method: 'POST',
+      headers: new Headers([
+        ['X-Trace', 'alpha'],
+        ['Accept', 'application/json'],
+      ]),
+      body: JSON.stringify({ ok: true }),
+    }
+
+    await manager.preload({
+      json: [
+        { url: '/data.json', requestInit: requestInitA },
+        { url: '/data.json', requestInit: requestInitB },
+      ],
+    })
+
+    expect(calls).toBe(1)
+  })
+
+  it('emits item progress from streamed fetch-backed loaders', async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('{"ok"'))
+        controller.enqueue(encoder.encode(':true}'))
+        controller.close()
+      },
+    })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: {
+          'Content-Length': '11',
+        },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const manager = new ResourceManager()
+    const events: Array<{ type: string; loadedBytes?: number; totalBytes?: number }> =
+      []
+
+    manager.subscribe(({ event, snapshot }) => {
+      if (event.type === 'item-progress') {
+        events.push({
+          type: event.type,
+          loadedBytes: event.item.transfer?.loadedBytes,
+          totalBytes: event.item.transfer?.totalBytes,
+        })
+
+        expect(snapshot.activeItems[0].transfer).toMatchObject({
+          loadedBytes: expect.any(Number),
+          totalBytes: 11,
+        })
+      }
+    })
+
+    await manager.preload({ json: ['/streamed.json'] })
+
+    expect(events).not.toHaveLength(0)
+    const lastEvent = events[events.length - 1]
+    expect(lastEvent).toMatchObject({
+      type: 'item-progress',
+      totalBytes: 11,
+    })
+    expect(lastEvent?.loadedBytes).toBe(11)
+  })
 })
