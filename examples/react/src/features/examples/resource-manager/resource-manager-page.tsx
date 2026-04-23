@@ -1,4 +1,7 @@
-import { ResourceManager, type ResourceBuckets } from "@laziest/web";
+import {
+  ResourceManager,
+  type ResourceBuckets,
+} from "@laziest/resource-manager";
 import { useEffect, useEffectEvent, useState } from "react";
 
 const img1List = [

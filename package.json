@@ -10,9 +10,13 @@
   "scripts": {
     "changeset": "changeset",
     "changeset:status": "changeset status --verbose",
+    "build:resource-manager": "pnpm --filter @laziest/resource-manager build",
     "build:web": "pnpm --filter @laziest/web build",
     "test": "pnpm --filter @laziest/web test",
+    "test:resource-manager": "pnpm --filter @laziest/resource-manager test",
     "test:web": "pnpm --filter @laziest/web test",
+    "test:resource-manager:watch": "pnpm --filter @laziest/resource-manager test:watch",
+    "test:resource-manager:coverage": "pnpm --filter @laziest/resource-manager test:coverage",
     "test:watch": "pnpm --filter @laziest/web test:watch",
     "test:coverage": "pnpm --filter @laziest/web test:coverage",
     "version-packages": "changeset version",

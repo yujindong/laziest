@@ -29,6 +29,9 @@ importers:
 
   examples/react:
     dependencies:
+      '@laziest/resource-manager':
+        specifier: workspace:*
+        version: link:../../packages/resource-manager
       '@laziest/web':
         specifier: workspace:*
         version: link:../../packages/web
@@ -96,6 +99,8 @@ importers:
       vite:
         specifier: ^8.0.8
         version: 8.0.8(@types/node@24.12.2)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.21.0)
+
+  packages/resource-manager: {}
 
   packages/web: {}
 
