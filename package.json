@@ -10,6 +10,7 @@
   "scripts": {
     "changeset": "changeset",
     "changeset:status": "changeset status --verbose",
+    "build": "pnpm -r --filter \"./packages/*\" run build",
     "build:resource-manager": "pnpm --filter @laziest/resource-manager build",
     "build:web": "pnpm --filter @laziest/web build",
     "test": "pnpm --filter @laziest/web test",
