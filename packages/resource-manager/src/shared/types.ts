@@ -508,6 +508,12 @@ export interface ResourceRunSnapshot {
   warnings: ResourceWarning[]
 }
 
+export interface ResourceRunEventPayload {
+  snapshot: ResourceRunSnapshot
+}
+
+export type ResourceRunSubscriber = (payload: ResourceRunEventPayload) => void
+
 export interface ResourceReadyResult {
   status: 'ready' | 'failed'
   startedAt: number | null

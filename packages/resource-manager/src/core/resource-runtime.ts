@@ -1,6 +1,7 @@
 import { normalizePlan } from './plan'
 import { resolveCachedValue, writeCacheValue } from './cache'
 import { buildPrioritySchedulingUnits } from './scheduler'
+import { createLoaderRegistry } from '../loaders'
 import {
   ResourceRun,
   type ResourceRunController,
@@ -26,6 +27,9 @@ import type {
   ResourceRuntimeLoader,
   ResourceRuntimeLoaderRegistry,
   ResourceRuntimeOptions,
+  ResourceBucketName,
+  ResourceLoaderKey,
+  NormalizedResourceItem,
 } from '../shared/types'
 import { normalizeResourcePlan } from '../shared/types'
 
@@ -71,7 +75,60 @@ function createActiveItemSnapshot(
 }
 
 function createDefaultRuntimeLoader(): ResourceRuntimeLoader {
-  return async () => undefined
+  const loaders = createLoaderRegistry()
+
+  return async (item, context) => {
+    return await loaders[item.type](createBrowserLoaderItem(item), context)
+  }
+}
+
+function getBucketName(type: NormalizedItem['type']): ResourceBucketName {
+  switch (type) {
+    case 'image':
+      return 'images'
+    case 'font':
+      return 'fonts'
+    case 'audio':
+      return 'audio'
+    case 'video':
+      return 'video'
+    case 'lottie':
+      return 'lottie'
+    case 'json':
+      return 'json'
+    case 'text':
+      return 'text'
+    case 'binary':
+      return 'binary'
+  }
+}
+
+function createBrowserLoaderItem(item: NormalizedItem): NormalizedResourceItem {
+  const source = {
+    url: item.url,
+    optional: item.optional,
+    ...('family' in item ? { family: item.family } : {}),
+    ...('descriptors' in item ? { descriptors: item.descriptors } : {}),
+    ...('preload' in item ? { preload: item.preload } : {}),
+    ...('crossOrigin' in item ? { crossOrigin: item.crossOrigin } : {}),
+    ...('requestInit' in item ? { requestInit: item.requestInit } : {}),
+  }
+
+  return {
+    id: item.key,
+    bucket: getBucketName(item.type),
+    type: item.type,
+    loaderKey: item.type as ResourceLoaderKey,
+    url: item.url,
+    optional: item.optional,
+    dedupeKey: item.dedupeKey,
+    source,
+    ...('family' in item ? { family: item.family } : {}),
+    ...('descriptors' in item ? { descriptors: item.descriptors } : {}),
+    ...('preload' in item ? { preload: item.preload } : {}),
+    ...('crossOrigin' in item ? { crossOrigin: item.crossOrigin } : {}),
+    ...('requestInit' in item ? { requestInit: item.requestInit } : {}),
+  }
 }
 
 function createAbortError(): DOMException | Error {

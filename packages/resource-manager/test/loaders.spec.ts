@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { ResourceManager } from '../src'
+import { ResourceManager, ResourceRuntime, createResourcePlan } from '../src'
 import { createResourceFailure } from '../src/core/errors'
 import { createLoaderRegistry } from '../src/loaders'
 import { normalizeResourceBuckets } from '../src/core/normalize'
@@ -273,6 +273,30 @@ describe('built-in loaders', () => {
       status: 'completed',
       total: 1,
       succeeded: 1,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('wires default loaders through ResourceRuntime', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('{"ok":true}', { status: 200 }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'data',
+            blocking: true,
+            items: [{ type: 'json', url: '/data.json' }],
+          },
+        ],
+      }),
+    )
+
+    await expect(runtime.start().waitForAll()).resolves.toMatchObject({
+      status: 'completed',
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

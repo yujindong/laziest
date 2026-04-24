@@ -4,6 +4,7 @@ import type {
   ResourceReadyResult,
   ResourceRunActiveItemSnapshot,
   ResourceRunGroupSnapshot,
+  ResourceRunSubscriber,
   ResourceRunSnapshot,
   ResourceRuntimeOptions,
 } from '../shared/types'
@@ -24,6 +25,7 @@ interface InternalRunState {
   snapshot: ResourceRunSnapshot
   readyWaiter: Waiter<ResourceReadyResult>
   completeWaiter: Waiter<ResourceCompleteResult>
+  subscribers: Set<ResourceRunSubscriber>
   abort?: () => void
 }
 
@@ -53,6 +55,7 @@ function initializeInternalState(run: ResourceRun): InternalRunState {
     snapshot: createIdleRunSnapshot(),
     readyWaiter: createPendingWaiter<ResourceReadyResult>(),
     completeWaiter: createPendingWaiter<ResourceCompleteResult>(),
+    subscribers: new Set<ResourceRunSubscriber>(),
   }
   internalRunState.set(run, state)
   return state
@@ -201,6 +204,15 @@ export class ResourceRun {
     return createWaiterPromise(getInternalState(this).completeWaiter)
   }
 
+  subscribe(listener: ResourceRunSubscriber): () => void {
+    const state = getInternalState(this)
+    state.subscribers.add(listener)
+
+    return () => {
+      state.subscribers.delete(listener)
+    }
+  }
+
   abort(): void {
     getInternalState(this).abort?.()
   }
@@ -217,7 +229,13 @@ export function createResourceRunController(
     run,
     getSnapshot: () => cloneRunSnapshot(getInternalState(run).snapshot),
     setSnapshot: (snapshot) => {
-      getInternalState(run).snapshot = snapshot
+      const state = getInternalState(run)
+      state.snapshot = snapshot
+      const clonedSnapshot = cloneRunSnapshot(snapshot)
+
+      for (const subscriber of state.subscribers) {
+        subscriber({ snapshot: cloneRunSnapshot(clonedSnapshot) })
+      }
     },
     setAbortHandler: (abort) => {
       getInternalState(run).abort = abort

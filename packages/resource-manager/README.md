@@ -1,19 +1,20 @@
 # `@laziest/resource-manager`
 
-Browser-only resource preloading for web applications.
+Browser-only resource loading for applications that need priority scheduling and early readiness.
 
-`@laziest/resource-manager` helps you preload runtime assets such as images, fonts, audio, video, lottie JSON, JSON, text, and binary files with a single scene-scoped manager instance.
+`@laziest/resource-manager` lets you describe resources as a static plan, run them through a priority-first runtime, continue background loading after critical resources are ready, and observe runtime progress through snapshots and subscriptions.
 
 ## Features
 
-- Browser-only resource preloading
-- Bucket-based input for images, fonts, audio, video, lottie, JSON, text, and binary assets
-- Configurable concurrency
-- Progress snapshots and subscription events
+- Static `ResourcePlan` declarations
+- Group-level and item-level priority
+- Blocking groups for early application readiness
+- Background groups that continue after `ready`
+- Runtime snapshots and subscriptions
 - Retry support with failure classification
-- Configurable log level and custom logger
-- Instance-level deduplication and successful-resource cache reuse
-- Optional resources that warn and skip instead of failing the preload session
+- In-run deduplication and optional cross-run cache reuse
+- Abort support for active runs
+- Optional resources that warn instead of blocking readiness
 
 ## Installation
 
@@ -23,85 +24,116 @@ pnpm add @laziest/resource-manager
 
 ## Quick Start
 
-Create one `ResourceManager` per scene, route, or page-level preload workflow.
-
 ```ts
-import { ResourceManager } from '@laziest/resource-manager'
+import {
+  ResourceRuntime,
+  createResourcePlan,
+} from '@laziest/resource-manager'
 
-const manager = new ResourceManager({
-  concurrency: 4,
-  logLevel: 'info',
-})
-
-await manager.preload({
-  images: ['/images/hero.webp', '/images/logo.png'],
-  fonts: [
+const plan = createResourcePlan({
+  groups: [
     {
-      family: 'Brand Sans',
-      url: '/fonts/brand-sans.woff2',
+      key: 'bootstrap',
+      priority: 100,
+      blocking: true,
+      items: [
+        { type: 'json', url: '/api/bootstrap.json' },
+        { type: 'font', url: '/fonts/brand.woff2', family: 'Brand Sans' },
+      ],
+    },
+    {
+      key: 'hero',
+      priority: 80,
+      blocking: true,
+      items: [{ type: 'image', url: '/images/hero.webp' }],
+    },
+    {
+      key: 'background',
+      priority: 10,
+      blocking: false,
+      items: [
+        { type: 'image', url: '/images/gallery-1.webp', optional: true },
+        { type: 'video', url: '/video/loop.mp4', optional: true },
+      ],
     },
   ],
-  audio: ['/audio/click.mp3'],
-  lottie: ['/animations/intro.json'],
-  json: ['/data/bootstrap.json'],
+})
+
+const runtime = new ResourceRuntime(plan, {
+  maxConcurrentItems: 4,
+  retry: { maxRetries: 2, delayMs: 250, backoff: 'exponential' },
+})
+
+const run = runtime.start()
+
+await run.waitForReady()
+renderApp()
+
+await run.waitForAll()
+```
+
+`waitForReady()` resolves when every blocking group has completed all required resources. Non-blocking groups may still be loading.
+
+`waitForAll()` resolves after every group has reached a terminal state.
+
+## Plans
+
+A plan is a static declaration. Each group is a scheduling and readiness unit.
+
+```ts
+const plan = createResourcePlan({
+  groups: [
+    {
+      key: 'critical',
+      priority: 100,
+      blocking: true,
+      items: [
+        { type: 'image', url: '/images/logo.png', priority: 100 },
+        { type: 'json', url: '/data/app.json', priority: 80 },
+      ],
+    },
+    {
+      key: 'later',
+      priority: 10,
+      blocking: false,
+      items: [{ type: 'image', url: '/images/gallery.png' }],
+    },
+  ],
 })
 ```
 
-When all required resources succeed, `preload()` resolves with the completed result.
+Scheduling order is deterministic:
 
-If any required resource reaches a final failure, `preload()` rejects with `ResourcePreloadError`.
+- higher `group.priority`
+- higher `item.priority`
+- declaration order
 
-## Resource Buckets
+`blocking` and `optional` are separate concepts:
 
-Resources are grouped by bucket. The bucket itself defines the resource type, so each item does not need a `type` field.
+- `blocking: true` means the group is required before runtime readiness
+- `optional: true` means a resource failure becomes a warning instead of failing its group
+
+## Resource Items
+
+Every item has a `type` and `url`.
 
 ```ts
-await manager.preload({
-  images: [
-    '/images/hero.webp',
-    { url: '/images/banner.webp', optional: true },
-  ],
-  fonts: [
-    {
-      family: 'Brand Sans',
-      url: '/fonts/brand-sans.woff2',
-      descriptors: { weight: '400', style: 'normal' },
-    },
-  ],
-  audio: [
-    '/audio/click.mp3',
-    {
-      url: '/audio/bgm.mp3',
-      preload: 'auto',
-      crossOrigin: 'anonymous',
-    },
-  ],
-  video: [
-    {
-      url: '/video/intro.mp4',
-      preload: 'metadata',
-    },
-  ],
-  lottie: ['/animations/intro.json'],
-  json: [
-    {
-      url: '/api/bootstrap.json',
-      requestInit: {
-        headers: {
-          Accept: 'application/json',
-        },
-      },
-    },
-  ],
-  text: ['/copy/legal.txt'],
-  binary: ['/models/mesh.bin'],
-})
+const items = [
+  { type: 'image', url: '/images/hero.webp' },
+  { type: 'font', url: '/fonts/brand.woff2', family: 'Brand Sans' },
+  { type: 'audio', url: '/audio/click.mp3', preload: 'auto' },
+  { type: 'video', url: '/video/intro.mp4', preload: 'metadata' },
+  { type: 'json', url: '/api/bootstrap.json' },
+  { type: 'text', url: '/copy/legal.txt' },
+  { type: 'binary', url: '/models/mesh.bin' },
+  { type: 'lottie', url: '/animations/intro.json' },
+] as const
 ```
 
-Supported buckets:
+Supported types:
 
-- `images`
-- `fonts`
+- `image`
+- `font`
 - `audio`
 - `video`
 - `lottie`
@@ -109,84 +141,94 @@ Supported buckets:
 - `text`
 - `binary`
 
-## Progress And Subscriptions
-
-The manager is the shared state container for one preload workflow.
+## Observing A Run
 
 ```ts
-const manager = new ResourceManager({ concurrency: 3 })
+const run = runtime.start()
 
-const unsubscribe = manager.subscribe(({ snapshot, event }) => {
-  if (event.type === 'item-progress') {
-    console.log('loading', event.item.url, event.item.transfer)
-  }
-
-  console.log('progress', snapshot.completed, '/', snapshot.total)
-  console.log('active', snapshot.activeItems.map((item) => item.url))
+const unsubscribe = run.subscribe(({ snapshot }) => {
+  console.log(snapshot.status)
+  console.log(snapshot.progress)
+  console.log(snapshot.groups)
 })
 
 try {
-  await manager.preload({
-    images: ['/images/hero.webp'],
-    json: ['/data/bootstrap.json'],
-  })
+  await run.waitForReady()
+  await run.waitForAll()
 } finally {
   unsubscribe()
 }
 ```
 
+Run statuses:
+
+- `idle`
+- `running`
+- `ready`
+- `completed`
+- `failed`
+- `aborted`
+
 Snapshot fields include:
 
-- `status`: `idle | running | completed | failed | aborted`
-- `total`
-- `queued`
-- `loading`
-- `succeeded`
-- `failed`
-- `skipped`
-- `completed`
-- `progress`: `0` to `1`
+- `status`
+- `startedAt`
+- `readyAt`
+- `endedAt`
+- `progress`
+- `groups`
 - `activeItems`
-- `recentlyCompleted`
 - `errors`
 - `warnings`
 
-Common event types include:
+## Cache, Retry, And Abort
 
-- `session-started`
-- `item-started`
-- `item-progress`
-- `item-succeeded`
-- `item-retrying`
-- `item-failed`
-- `warning`
-- `session-completed`
-- `session-failed`
-- `session-aborted`
-- `session-reset`
+```ts
+const cache = new Map<string, unknown>()
+
+const runtime = new ResourceRuntime(plan, {
+  cache: {
+    get: (key) => cache.get(key),
+    set: (key, value) => void cache.set(key, value),
+  },
+  retry: {
+    maxRetries: 2,
+    delayMs: 200,
+    backoff: 'linear',
+  },
+})
+
+const run = runtime.start()
+
+setTimeout(() => {
+  run.abort()
+}, 5000)
+```
+
+Runtime behavior:
+
+- repeated resources in the same run are loaded once and fanned out to all matching items
+- provided caches are reused across runs
+- cache keys use normalized loader-relevant resource config
+- transient failures retry according to the configured policy
+- aborting a run moves its snapshot to `aborted` and rejects pending waiters
 
 ## Error Handling
 
-Required resources fail the preload session. Optional resources become warnings and skipped items.
-
 ```ts
 import {
-  ResourceManager,
-  ResourcePreloadError,
+  ResourceRunError,
+  ResourceRuntime,
+  createResourcePlan,
 } from '@laziest/resource-manager'
 
-const manager = new ResourceManager()
+const run = new ResourceRuntime(plan).start()
 
 try {
-  await manager.preload({
-    images: ['/images/hero.webp'],
-    json: ['/data/bootstrap.json'],
-  })
+  await run.waitForReady()
 } catch (error) {
-  if (error instanceof ResourcePreloadError) {
-    console.error(error.result.status)
-    console.error(error.result.errors)
-    console.error(error.result.warnings)
+  if (error instanceof ResourceRunError) {
+    console.error(run.getSnapshot().errors)
   } else {
     throw error
   }
@@ -204,73 +246,6 @@ Failure categories include:
 - `unsupported`
 - `unknown`
 
-Important behavior:
+## Legacy Manager
 
-- HTTP `404` on a required resource is a final failure
-- optional resources use `optional: true` and become skipped warnings after final failure
-- transient failures can retry based on retry policy
-- `abort()` ends the active session and rejects the pending preload promise
-
-## Retry, Logging, Abort, And Reset
-
-```ts
-const manager = new ResourceManager({
-  concurrency: 4,
-  logLevel: 'debug',
-  retry: {
-    maxRetries: 2,
-    delayMs: 250,
-    backoff: 'exponential',
-  },
-})
-```
-
-Available log levels:
-
-- `silent`
-- `error`
-- `warn`
-- `info`
-- `debug`
-
-You can also provide a custom logger:
-
-```ts
-const manager = new ResourceManager({
-  logLevel: 'debug',
-  logger: {
-    error(message, context) {
-      console.error(message, context)
-    },
-    warn(message, context) {
-      console.warn(message, context)
-    },
-    info(message, context) {
-      console.info(message, context)
-    },
-    debug(message, context) {
-      console.debug(message, context)
-    },
-  },
-})
-```
-
-Lifecycle helpers:
-
-- `abort()` cancels the active preload session
-- `reset()` returns the manager to the idle snapshot
-- `resetClearsCache: true` also clears the successful-resource cache
-
-## API Exports
-
-```ts
-import {
-  ResourceManager,
-  ResourcePreloadError,
-  consoleResourceLogger,
-  shouldLog,
-  type ResourceBuckets,
-  type ResourceManagerSnapshot,
-  type RetryOptions,
-} from '@laziest/resource-manager'
-```
+The package still exports the older `ResourceManager` preload API for compatibility. New applications should prefer `ResourcePlan`, `ResourceRuntime`, and `ResourceRun`.

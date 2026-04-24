@@ -216,4 +216,36 @@ describe("runtime api", () => {
     await allPromise;
     expect(run.getSnapshot().status).toBe("completed");
   });
+
+  it("notifies subscribers with cloned run snapshots", async () => {
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: "critical",
+            blocking: true,
+            items: [{ type: "image", url: "/hero.png" }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async () => undefined,
+        },
+      },
+    );
+    const run = runtime.start();
+    const snapshots: Array<ReturnType<typeof run.getSnapshot>> = [];
+
+    const unsubscribe = run.subscribe(({ snapshot }) => {
+      snapshots.push(snapshot);
+      snapshot.groups.length = 0;
+    });
+
+    await run.waitForAll();
+    unsubscribe();
+
+    expect(snapshots.length).toBeGreaterThan(0);
+    expect(run.getSnapshot().groups).toHaveLength(1);
+  });
 });

@@ -1,8 +1,10 @@
 import {
-  ResourceManager,
-  type ResourceBuckets,
+  ResourceRun,
+  ResourceRuntime,
+  createResourcePlan,
+  type ResourceRunSnapshot,
 } from "@laziest/resource-manager";
-import { useEffect, useEffectEvent, useState } from "react";
+import { useEffect, useState } from "react";
 
 const img1List = [
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/11title.png",
@@ -54,41 +56,121 @@ const img2List = [
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game02/scan-bottom-img.png",
 ];
 
-const manifest: ResourceBuckets = {
-  images: [...img1List, ...img2List].map((url) => ({ url, optional: true })),
-  fonts: [
+const plan = createResourcePlan({
+  groups: [
     {
-      url: "https://pintu-image.go.sohu.com/activities/fonts/FZLTDHK.TTF",
-      family: "方正兰亭大黑",
-      optional: true,
+      key: "critical",
+      priority: 100,
+      blocking: true,
+      items: [
+        ...img1List.slice(0, 2).map((url) => ({
+          type: "image" as const,
+          url,
+          optional: true,
+          priority: 100,
+        })),
+        {
+          type: "font" as const,
+          url: "https://pintu-image.go.sohu.com/activities/fonts/FZLTDHK.TTF",
+          family: "方正兰亭大黑",
+          optional: true,
+          priority: 80,
+        },
+      ],
+    },
+    {
+      key: "background",
+      priority: 10,
+      blocking: false,
+      items: [
+        ...[...img1List.slice(2), ...img2List].map((url) => ({
+          type: "image" as const,
+          url,
+          optional: true,
+        })),
+        ...[
+          "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-12604081100.mp4",
+          "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/loop-2604081100.mp4",
+        ].map((url) => ({
+          type: "video" as const,
+          url,
+          optional: true,
+        })),
+      ],
     },
   ],
-
-  video: [
-    "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-12604081100.mp4",
-    "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/loop-2604081100.mp4",
-  ].map((url) => ({ url, optional: true })),
-};
-const resourceManager = new ResourceManager({
-  concurrency: 3,
-  logLevel: "debug",
 });
+
+const runtime = new ResourceRuntime(plan, {
+  maxConcurrentItems: 3,
+  logLevel: "debug",
+  retry: { maxRetries: 1, delayMs: 200, backoff: "fixed" },
+});
+
 const ResourceManagerPage = () => {
-  const [progress, setProgress] = useState(0);
-  const preload = useEffectEvent(async () => {
-    await resourceManager.preload(manifest);
-  });
+  const [snapshot, setSnapshot] = useState<ResourceRunSnapshot>(() =>
+    new ResourceRun(plan).getSnapshot(),
+  );
+  const [ready, setReady] = useState(false);
+
   useEffect(() => {
-    preload();
-  }, []);
-  useEffect(() => {
-    return resourceManager.subscribe((item) => {
-      setProgress(item.snapshot.progress);
+    const run = runtime.start();
+    setReady(false);
+    setSnapshot(run.getSnapshot());
+
+    const unsubscribe = run.subscribe(({ snapshot }) => {
+      setSnapshot(snapshot);
     });
+
+    void run
+      .waitForReady()
+      .then(() => {
+        setReady(true);
+      })
+      .catch(() => undefined);
+    void run.waitForAll().catch(() => undefined);
+
+    return () => {
+      unsubscribe();
+      run.abort();
+    };
   }, []);
+
   return (
-    <div>
-      <progress className="w-full text-red-500" value={progress} />
+    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Resource Runtime</h1>
+          <p className="text-sm text-neutral-500">
+            status: {snapshot.status} / ready: {ready ? "yes" : "no"}
+          </p>
+        </div>
+        <div className="text-sm tabular-nums">
+          {Math.round(snapshot.progress * 100)}%
+        </div>
+      </div>
+
+      <progress className="h-2 w-full" value={snapshot.progress} max={1} />
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {snapshot.groups.map((group) => (
+          <div className="border border-neutral-200 p-3" key={group.key}>
+            <div className="flex items-center justify-between">
+              <span className="font-medium">{group.key}</span>
+              <span className="text-sm text-neutral-500">{group.status}</span>
+            </div>
+            <div className="mt-2 text-sm text-neutral-500">
+              {group.completedItems}/{group.totalItems} items
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {snapshot.errors.length > 0 ? (
+        <div className="text-sm text-red-600">
+          {snapshot.errors.length} resource errors recorded
+        </div>
+      ) : null}
     </div>
   );
 };
