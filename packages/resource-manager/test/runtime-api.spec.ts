@@ -77,6 +77,48 @@ describe("runtime api", () => {
     });
   });
 
+  it("lazily starts and returns the singleton run via getRun", async () => {
+    let loads = 0;
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [{ key: "hero", items: [{ type: "image", url: "/hero.png" }] }],
+      }),
+      {
+        loaders: {
+          image: async () => {
+            loads += 1;
+          },
+        },
+      },
+    );
+
+    const run = runtime.getRun();
+
+    expect(run).toBeInstanceOf(ResourceRun);
+    expect(run).toBe(runtime.start());
+    await run.waitForAll();
+    expect(loads).toBe(1);
+  });
+
+  it("returns the same singleton run across repeated start calls", () => {
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [{ key: "hero", items: [{ type: "image", url: "/hero.png" }] }],
+      }),
+      {
+        loaders: {
+          image: async () => undefined,
+        },
+      },
+    );
+
+    const firstRun = runtime.start();
+    const secondRun = runtime.start();
+
+    expect(secondRun).toBe(firstRun);
+    expect(runtime.getRun()).toBe(firstRun);
+  });
+
   it("isolates nested request config when creating a plan", () => {
     const headers = { "x-trace": "alpha" };
 

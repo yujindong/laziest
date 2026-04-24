@@ -161,6 +161,7 @@ export { ResourceRun } from './resource-run'
 export class ResourceRuntime {
   readonly plan: ResourcePlan
   readonly options: ResourceRuntimeOptions
+  private run?: ResourceRun
 
   constructor(
     plan: ResourcePlan,
@@ -171,10 +172,15 @@ export class ResourceRuntime {
   }
 
   start(): ResourceRun {
+    if (this.run) {
+      return this.run
+    }
+
     const controller = createResourceRunController(this.plan, this.options)
     const groups = normalizePlan(this.plan)
     const runAbortController = new AbortController()
     const activeItemControllers = new Set<AbortController>()
+    this.run = controller.run
 
     controller.setAbortHandler(() => {
       const status = controller.getSnapshot().status
@@ -202,6 +208,10 @@ export class ResourceRuntime {
       activeItemControllers,
     )
     return controller.run
+  }
+
+  getRun(): ResourceRun {
+    return this.run ?? this.start()
   }
 
   private async execute(

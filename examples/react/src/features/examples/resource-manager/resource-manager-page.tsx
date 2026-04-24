@@ -1,5 +1,4 @@
 import {
-  ResourceRun,
   ResourceRuntime,
   createResourcePlan,
   type ResourceRunSnapshot,
@@ -109,13 +108,13 @@ const runtime = new ResourceRuntime(plan, {
 
 const ResourceManagerPage = () => {
   const [snapshot, setSnapshot] = useState<ResourceRunSnapshot>(() =>
-    new ResourceRun(plan).getSnapshot(),
+    runtime.getRun().getSnapshot(),
   );
 
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const run = runtime.start();
+    const run = runtime.getRun();
     const unsubscribe = run.subscribe(({ snapshot }) => {
       setSnapshot(snapshot);
     });
