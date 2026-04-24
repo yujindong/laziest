@@ -1,18 +1,26 @@
-import type { ResourcePlan } from './shared/types'
+import type { ResourceItem, ResourcePlan } from './shared/types'
 
 export { ResourceManager } from './core/resource-manager'
 export { ResourcePreloadError } from './core/errors'
-export { ResourceRuntime } from './core/resource-runtime'
+export { ResourceRun, ResourceRuntime } from './core/resource-runtime'
 export { consoleResourceLogger, shouldLog } from './shared/logger'
 export type * from './shared/types'
 
-export function createResourcePlan(plan: ResourcePlan): ResourcePlan {
+function cloneResourceItem<T extends ResourceItem>(item: T): T {
+  return { ...item }
+}
+
+function normalizeResourcePlan(plan: ResourcePlan): ResourcePlan {
   return {
     groups: plan.groups.map((group) => ({
       key: group.key,
       priority: group.priority ?? 0,
       blocking: group.blocking ?? false,
-      items: [...group.items],
+      items: group.items.map(cloneResourceItem),
     })),
   }
+}
+
+export function createResourcePlan(plan: ResourcePlan): ResourcePlan {
+  return normalizeResourcePlan(plan)
 }

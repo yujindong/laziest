@@ -12,10 +12,13 @@ export type ResourceType =
 
 export interface BaseResourceItem {
   key?: string
-  type: ResourceType
   url: string
   optional?: boolean
   priority?: number
+}
+
+export interface ImageResourceItem extends BaseResourceItem {
+  type: 'image'
 }
 
 export interface FontResourceItem extends BaseResourceItem {
@@ -36,7 +39,7 @@ export interface DataResourceItem extends BaseResourceItem {
 }
 
 export type ResourceItem =
-  | BaseResourceItem
+  | ImageResourceItem
   | FontResourceItem
   | MediaResourceItem
   | DataResourceItem
