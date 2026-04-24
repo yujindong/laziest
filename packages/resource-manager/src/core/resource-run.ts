@@ -40,6 +40,22 @@ export interface ResourceRunController {
 
 const internalRunState = new WeakMap<ResourceRun, InternalRunState>()
 
+function initializeInternalState(run: ResourceRun): InternalRunState {
+  const existingState = internalRunState.get(run)
+
+  if (existingState) {
+    return existingState
+  }
+
+  const state: InternalRunState = {
+    snapshot: createIdleRunSnapshot(),
+    readyWaiter: createPendingWaiter<ResourceReadyResult>(),
+    completeWaiter: createPendingWaiter<ResourceCompleteResult>(),
+  }
+  internalRunState.set(run, state)
+  return state
+}
+
 function createPendingWaiter<T>(): Waiter<T> {
   return { state: { status: 'pending' } }
 }
@@ -167,7 +183,9 @@ export class ResourceRun {
   constructor(
     readonly plan: ResourcePlan,
     readonly options: ResourceRuntimeOptions = {},
-  ) {}
+  ) {
+    initializeInternalState(this)
+  }
 
   getSnapshot(): ResourceRunSnapshot {
     return cloneRunSnapshot(getInternalState(this).snapshot)
@@ -187,12 +205,7 @@ export function createResourceRunController(
   options: ResourceRuntimeOptions = {},
 ): ResourceRunController {
   const run = new ResourceRun(plan, options)
-
-  internalRunState.set(run, {
-    snapshot: createIdleRunSnapshot(),
-    readyWaiter: createPendingWaiter<ResourceReadyResult>(),
-    completeWaiter: createPendingWaiter<ResourceCompleteResult>(),
-  })
+  initializeInternalState(run)
 
   return {
     run,

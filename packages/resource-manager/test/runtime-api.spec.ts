@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ResourceRun,
   ResourceRuntime,
   createResourcePlan,
   type ResourceItem,
@@ -54,6 +55,26 @@ describe("runtime api", () => {
     });
 
     expect(run.plan.groups[0].items[0]).not.toBe(rawPlan.groups[0].items[0]);
+  });
+
+  it("allows direct ResourceRun construction to expose an idle snapshot", () => {
+    const plan = createResourcePlan({
+      groups: [{ key: "hero", items: [{ type: "image", url: "/hero.png" }] }],
+    });
+
+    const run = new ResourceRun(plan);
+
+    expect(run.getSnapshot()).toMatchObject({
+      status: "idle",
+      startedAt: null,
+      readyAt: null,
+      endedAt: null,
+      progress: 0,
+      groups: [],
+      activeItems: [],
+      errors: [],
+      warnings: [],
+    });
   });
 
   it("isolates nested request config when creating a plan", () => {
