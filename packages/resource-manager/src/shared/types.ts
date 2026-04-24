@@ -10,6 +10,48 @@ export type ResourceType =
   | 'text'
   | 'binary'
 
+export interface BaseResourceItem {
+  key?: string
+  type: ResourceType
+  url: string
+  optional?: boolean
+  priority?: number
+}
+
+export interface FontResourceItem extends BaseResourceItem {
+  type: 'font'
+  family: string
+  descriptors?: FontFaceDescriptors
+}
+
+export interface MediaResourceItem extends BaseResourceItem {
+  type: 'audio' | 'video'
+  preload?: 'auto' | 'metadata' | 'none'
+  crossOrigin?: '' | 'anonymous' | 'use-credentials'
+}
+
+export interface DataResourceItem extends BaseResourceItem {
+  type: 'json' | 'text' | 'binary' | 'lottie'
+  requestInit?: RequestInit
+}
+
+export type ResourceItem =
+  | BaseResourceItem
+  | FontResourceItem
+  | MediaResourceItem
+  | DataResourceItem
+
+export interface ResourceGroup {
+  key: string
+  priority?: number
+  blocking?: boolean
+  items: ResourceItem[]
+}
+
+export interface ResourcePlan {
+  groups: ResourceGroup[]
+}
+
 export type ResourceBucketName =
   | 'images'
   | 'fonts'
@@ -121,6 +163,14 @@ export interface ResourceBuckets {
 export interface ResourceLoadContext {
   signal: AbortSignal
   onProgress?: (transfer: ResourceTransfer) => void
+}
+
+export interface ResourceRuntimeOptions {
+  maxConcurrentItems?: number
+  retry?: RetryOptions
+  loaders?: Partial<ResourceLoaderRegistry>
+  logger?: ResourceLogger
+  logLevel?: LogLevel
 }
 
 export interface NormalizedResourceItem {
