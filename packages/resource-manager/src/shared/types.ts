@@ -55,6 +55,32 @@ export interface ResourcePlan {
   groups: ResourceGroup[]
 }
 
+export interface NormalizedGroup {
+  key: string
+  priority: number
+  blocking: boolean
+  index: number
+  items: NormalizedItem[]
+}
+
+export interface NormalizedItem {
+  key: string
+  groupKey: string
+  url: string
+  type: ResourceType
+  optional: boolean
+  priority: number
+  groupPriority: number
+  index: number
+  groupIndex: number
+  dedupeKey: string
+}
+
+export interface PrioritySchedulingUnit {
+  item: NormalizedItem
+  blocking: boolean
+}
+
 function cloneHeaders(headers: RequestInit['headers']): RequestInit['headers'] | undefined {
   if (!headers) {
     return undefined
