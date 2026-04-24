@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   ResourceManager,
   ResourcePreloadError,
+  ResourceRunError,
   ResourceRuntime,
   createResourcePlan,
 } from '../src'
-import { ResourceRunError } from '../src/core/errors'
 
 describe('retry and error handling', () => {
   it('rejects on required 404 failures with structured error details', async () => {
@@ -247,6 +247,33 @@ describe('retry and error handling', () => {
     })
   })
 
+  it('does not create an unhandled rejection when only waitForReady is observed', async () => {
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'critical',
+            blocking: true,
+            items: [{ type: 'image', url: '/broken.png' }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async () => {
+            throw new Error('boom')
+          },
+        },
+      },
+    )
+
+    const run = runtime.start()
+
+    await expect(run.waitForReady()).rejects.toBeInstanceOf(ResourceRunError)
+    await Promise.resolve()
+    expect(run.getSnapshot().status).toBe('failed')
+  })
+
   it('does not reject waitForReady when a non-blocking group fails', async () => {
     let releaseCritical!: () => void
     const criticalPending = new Promise<void>((resolve) => {
@@ -287,6 +314,7 @@ describe('retry and error handling', () => {
 
     await expect(run.waitForReady()).resolves.toMatchObject({
       status: 'ready',
+      readyAt: expect.any(Number),
     })
 
     const result = await run.waitForAll()

@@ -2,7 +2,7 @@ import { normalizeResourcePlan } from './shared/types'
 import type { ResourcePlan } from './shared/types'
 
 export { ResourceManager } from './core/resource-manager'
-export { ResourcePreloadError } from './core/errors'
+export { ResourcePreloadError, ResourceRunError } from './core/errors'
 export { normalizePlan, sortScheduledItems } from './core/plan'
 export { ResourceRun, ResourceRuntime } from './core/resource-runtime'
 export { buildPrioritySchedulingUnits } from './core/scheduler'

@@ -492,6 +492,7 @@ export interface ResourceRunActiveItemSnapshot {
 export interface ResourceRunSnapshot {
   status: ResourceRunStatus
   startedAt: number | null
+  readyAt: number | null
   endedAt: number | null
   progress: number
   groups: ResourceRunGroupSnapshot[]

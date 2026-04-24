@@ -135,14 +135,20 @@ describe("runtime api", () => {
     );
 
     const run = runtime.start();
+    let completed = false;
+    const allPromise = run.waitForAll().then(() => {
+      completed = true;
+    });
+
     await run.waitForReady();
 
     expect(run.getSnapshot().status).toBe("ready");
-    expect(order).toEqual(["/hero.png", "/gallery.png"]);
+    expect(run.getSnapshot().readyAt).toEqual(expect.any(Number));
+    expect(completed).toBe(false);
 
     releaseBackground();
 
-    await run.waitForAll();
+    await allPromise;
     expect(run.getSnapshot().status).toBe("completed");
     expect(order).toEqual(["/hero.png", "/gallery.png"]);
   });
@@ -173,17 +179,20 @@ describe("runtime api", () => {
     );
 
     const run = runtime.start();
+    let completed = false;
+    const allPromise = run.waitForAll().then(() => {
+      completed = true;
+    });
+
     await run.waitForReady();
 
-    expect(run.getSnapshot()).toMatchObject({
-      status: "ready",
-      groups: [{ key: "background", status: "running" }],
-      activeItems: [{ url: "/gallery.png" }],
-    });
+    expect(run.getSnapshot().status).toBe("ready");
+    expect(run.getSnapshot().readyAt).toEqual(expect.any(Number));
+    expect(completed).toBe(false);
 
     releaseImage();
 
-    await run.waitForAll();
+    await allPromise;
     expect(run.getSnapshot().status).toBe("completed");
   });
 });

@@ -8,43 +8,83 @@ import type {
   ResourceRuntimeOptions,
 } from '../shared/types'
 
-interface Deferred<T> {
-  promise: Promise<T>
-  resolve(value: T): void
-  reject(reason?: unknown): void
-  isSettled(): boolean
+type WaiterState<T> =
+  | { status: 'pending' }
+  | { status: 'resolved'; value: T }
+  | { status: 'rejected'; reason: unknown }
+
+interface Waiter<T> {
+  state: WaiterState<T>
+  promise?: Promise<T>
+  resolve?: (value: T) => void
+  reject?: (reason?: unknown) => void
 }
 
-function createDeferred<T>(): Deferred<T> {
-  let resolvePromise!: (value: T) => void
-  let rejectPromise!: (reason?: unknown) => void
-  let settled = false
+interface InternalRunState {
+  snapshot: ResourceRunSnapshot
+  readyWaiter: Waiter<ResourceReadyResult>
+  completeWaiter: Waiter<ResourceCompleteResult>
+}
 
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = (value) => {
-      if (settled) {
-        return
-      }
+export interface ResourceRunController {
+  readonly run: ResourceRun
+  getSnapshot(): ResourceRunSnapshot
+  setSnapshot(snapshot: ResourceRunSnapshot): void
+  resolveReady(result: ResourceReadyResult): void
+  rejectReady(error: unknown): void
+  resolveComplete(result: ResourceCompleteResult): void
+  rejectComplete(error: unknown): void
+  isReadySettled(): boolean
+  isCompleteSettled(): boolean
+}
 
-      settled = true
-      resolve(value)
-    }
-    rejectPromise = (reason) => {
-      if (settled) {
-        return
-      }
+const internalRunState = new WeakMap<ResourceRun, InternalRunState>()
 
-      settled = true
-      reject(reason)
-    }
+function createPendingWaiter<T>(): Waiter<T> {
+  return { state: { status: 'pending' } }
+}
+
+function createWaiterPromise<T>(waiter: Waiter<T>): Promise<T> {
+  if (waiter.state.status === 'resolved') {
+    return Promise.resolve(waiter.state.value)
+  }
+
+  if (waiter.state.status === 'rejected') {
+    return Promise.reject(waiter.state.reason)
+  }
+
+  if (waiter.promise) {
+    return waiter.promise
+  }
+
+  waiter.promise = new Promise<T>((resolve, reject) => {
+    waiter.resolve = resolve
+    waiter.reject = reject
   })
 
-  return {
-    promise,
-    resolve: resolvePromise,
-    reject: rejectPromise,
-    isSettled: () => settled,
+  return waiter.promise
+}
+
+function settleWaiterResolved<T>(waiter: Waiter<T>, value: T): void {
+  if (waiter.state.status !== 'pending') {
+    return
   }
+
+  waiter.state = { status: 'resolved', value }
+  waiter.resolve?.(value)
+  waiter.resolve = undefined
+  waiter.reject = undefined
+}
+
+function settleWaiterRejected<T>(waiter: Waiter<T>, reason: unknown): void {
+  if (waiter.state.status !== 'pending') {
+    return
+  }
+
+  waiter.state = { status: 'rejected', reason }
+  waiter.reject?.(reason)
+  waiter.resolve = undefined
+  waiter.reject = undefined
 }
 
 function cloneActiveItem(
@@ -57,13 +97,23 @@ function cloneGroup(group: ResourceRunGroupSnapshot): ResourceRunGroupSnapshot {
   return { ...group }
 }
 
+function getInternalState(run: ResourceRun): InternalRunState {
+  const state = internalRunState.get(run)
+
+  if (!state) {
+    throw new Error('ResourceRun internal state missing')
+  }
+
+  return state
+}
+
 export function createReadyResult(
   snapshot: ResourceRunSnapshot,
 ): ResourceReadyResult {
   return {
     status: snapshot.status === 'failed' ? 'failed' : 'ready',
     startedAt: snapshot.startedAt,
-    readyAt: snapshot.endedAt,
+    readyAt: snapshot.readyAt ?? snapshot.endedAt,
     progress: snapshot.progress,
     groups: snapshot.groups.map(cloneGroup),
     activeItems: snapshot.activeItems.map(cloneActiveItem),
@@ -91,6 +141,7 @@ export function createIdleRunSnapshot(): ResourceRunSnapshot {
   return {
     status: 'idle',
     startedAt: null,
+    readyAt: null,
     endedAt: null,
     progress: 0,
     groups: [],
@@ -118,47 +169,51 @@ export class ResourceRun {
     readonly options: ResourceRuntimeOptions = {},
   ) {}
 
-  private snapshot = createIdleRunSnapshot()
-  private readonly readyDeferred = createDeferred<ResourceReadyResult>()
-  private readonly completeDeferred = createDeferred<ResourceCompleteResult>()
-
   getSnapshot(): ResourceRunSnapshot {
-    return cloneRunSnapshot(this.snapshot)
+    return cloneRunSnapshot(getInternalState(this).snapshot)
   }
 
   waitForReady(): Promise<ResourceReadyResult> {
-    return this.readyDeferred.promise
+    return createWaiterPromise(getInternalState(this).readyWaiter)
   }
 
   waitForAll(): Promise<ResourceCompleteResult> {
-    return this.completeDeferred.promise
+    return createWaiterPromise(getInternalState(this).completeWaiter)
   }
+}
 
-  setSnapshot(snapshot: ResourceRunSnapshot): void {
-    this.snapshot = snapshot
-  }
+export function createResourceRunController(
+  plan: ResourcePlan,
+  options: ResourceRuntimeOptions = {},
+): ResourceRunController {
+  const run = new ResourceRun(plan, options)
 
-  resolveReady(result: ResourceReadyResult): void {
-    this.readyDeferred.resolve(result)
-  }
+  internalRunState.set(run, {
+    snapshot: createIdleRunSnapshot(),
+    readyWaiter: createPendingWaiter<ResourceReadyResult>(),
+    completeWaiter: createPendingWaiter<ResourceCompleteResult>(),
+  })
 
-  rejectReady(error: unknown): void {
-    this.readyDeferred.reject(error)
-  }
-
-  resolveComplete(result: ResourceCompleteResult): void {
-    this.completeDeferred.resolve(result)
-  }
-
-  rejectComplete(error: unknown): void {
-    this.completeDeferred.reject(error)
-  }
-
-  isReadySettled(): boolean {
-    return this.readyDeferred.isSettled()
-  }
-
-  isCompleteSettled(): boolean {
-    return this.completeDeferred.isSettled()
+  return {
+    run,
+    getSnapshot: () => cloneRunSnapshot(getInternalState(run).snapshot),
+    setSnapshot: (snapshot) => {
+      getInternalState(run).snapshot = snapshot
+    },
+    resolveReady: (result) => {
+      settleWaiterResolved(getInternalState(run).readyWaiter, result)
+    },
+    rejectReady: (error) => {
+      settleWaiterRejected(getInternalState(run).readyWaiter, error)
+    },
+    resolveComplete: (result) => {
+      settleWaiterResolved(getInternalState(run).completeWaiter, result)
+    },
+    rejectComplete: (error) => {
+      settleWaiterRejected(getInternalState(run).completeWaiter, error)
+    },
+    isReadySettled: () => getInternalState(run).readyWaiter.state.status !== 'pending',
+    isCompleteSettled: () =>
+      getInternalState(run).completeWaiter.state.status !== 'pending',
   }
 }

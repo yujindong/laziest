@@ -1,6 +1,8 @@
 import { normalizePlan } from './plan'
 import {
   ResourceRun,
+  type ResourceRunController,
+  createResourceRunController,
   createCompleteResult,
   createIdleRunSnapshot,
   createReadyResult,
@@ -83,45 +85,55 @@ export class ResourceRuntime {
   }
 
   start(): ResourceRun {
-    const run = new ResourceRun(this.plan, this.options)
+    const controller = createResourceRunController(this.plan, this.options)
     const groups = normalizePlan(this.plan)
-    run.setSnapshot(createRunningRunSnapshot(groups))
-    this.updateRunStatus(run)
-    void this.execute(run, groups)
-    return run
+    controller.setSnapshot(createRunningRunSnapshot(groups))
+    this.updateRunStatus(controller)
+    void this.execute(controller, groups)
+    return controller.run
   }
 
   private async execute(
-    run: ResourceRun,
+    controller: ResourceRunController,
     groups: NormalizedGroup[],
   ): Promise<void> {
-    const groupPromises = groups.map((group) => this.executeGroup(run, group))
-    await Promise.allSettled(groupPromises)
-    this.completeRun(run)
+    const groupResults = await Promise.allSettled(
+      groups.map((group) => this.executeGroup(controller, group)),
+    )
+    const rejectedResult = groupResults.find(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    )
+
+    if (rejectedResult) {
+      this.failRun(controller, rejectedResult.reason)
+      return
+    }
+
+    this.completeRun(controller)
   }
 
   private async executeGroup(
-    run: ResourceRun,
+    controller: ResourceRunController,
     group: NormalizedGroup,
   ): Promise<void> {
-    this.markGroupStarted(run, group.key)
+    this.markGroupStarted(controller, group.key)
 
     for (const item of group.items) {
-      const itemSucceeded = await this.executeItem(run, group, item)
+      const itemSucceeded = await this.executeItem(controller, group, item)
       if (!itemSucceeded) {
         return
       }
 
-      if (run.getSnapshot().status === 'failed') {
+      if (controller.getSnapshot().status === 'failed') {
         return
       }
     }
 
-    this.markGroupSucceeded(run, group.key)
+    this.markGroupSucceeded(controller, group.key)
   }
 
   private async executeItem(
-    run: ResourceRun,
+    controller: ResourceRunController,
     group: NormalizedGroup,
     item: NormalizedItem,
   ): Promise<boolean> {
@@ -129,14 +141,14 @@ export class ResourceRuntime {
     const activeItem = createActiveItemSnapshot(item, startedAt)
     const loader = this.getLoader(item.type)
 
-    this.updateSnapshot(run, (snapshot) => ({
+    this.updateSnapshot(controller, (snapshot) => ({
       ...snapshot,
       activeItems: [...snapshot.activeItems, activeItem],
     }))
 
     try {
       await loader(item, { signal: createAbortSignal() })
-      this.updateSnapshot(run, (snapshot) => {
+      this.updateSnapshot(controller, (snapshot) => {
         const nextGroups = snapshot.groups.map((snapshotGroup) =>
           snapshotGroup.key === group.key
             ? {
@@ -149,19 +161,17 @@ export class ResourceRuntime {
         return {
           ...snapshot,
           groups: nextGroups,
-          activeItems: snapshot.activeItems.filter(
-            (snapshotItem) => snapshotItem.key !== item.key,
-          ),
+          activeItems: this.removeActiveItem(snapshot.activeItems, item),
           progress: this.calculateProgress(nextGroups),
         }
       })
-      this.updateRunStatus(run)
+      this.updateRunStatus(controller)
       return true
     } catch (cause) {
       const failure = createResourceFailure(item, cause, 1)
       const endedAt = Date.now()
 
-      this.updateSnapshot(run, (snapshot) => ({
+      this.updateSnapshot(controller, (snapshot) => ({
         ...snapshot,
         groups: snapshot.groups.map((snapshotGroup) =>
           snapshotGroup.key === group.key
@@ -172,30 +182,31 @@ export class ResourceRuntime {
               }
             : snapshotGroup,
         ),
-        activeItems: snapshot.activeItems.filter(
-          (snapshotItem) => snapshotItem.key !== item.key,
-        ),
+        activeItems: this.removeActiveItem(snapshot.activeItems, item),
         errors: [...snapshot.errors, failure],
       }))
 
       if (group.blocking) {
-        this.updateSnapshot(run, (snapshot) => ({
+        this.updateSnapshot(controller, (snapshot) => ({
           ...snapshot,
           status: 'failed',
           endedAt: snapshot.endedAt ?? endedAt,
         }))
-        this.failRun(run, new ResourceRunError('Blocking groups failed'))
+        this.failRun(controller, new ResourceRunError('Blocking groups failed'))
       } else {
-        this.updateRunStatus(run)
+        this.updateRunStatus(controller)
       }
 
       return false
     }
   }
 
-  private markGroupStarted(run: ResourceRun, groupKey: string): void {
+  private markGroupStarted(
+    controller: ResourceRunController,
+    groupKey: string,
+  ): void {
     const startedAt = Date.now()
-    this.updateSnapshot(run, (snapshot) => ({
+    this.updateSnapshot(controller, (snapshot) => ({
       ...snapshot,
       groups: snapshot.groups.map((group) =>
         group.key === groupKey
@@ -209,8 +220,11 @@ export class ResourceRuntime {
     }))
   }
 
-  private markGroupSucceeded(run: ResourceRun, groupKey: string): void {
-    this.updateSnapshot(run, (snapshot) => {
+  private markGroupSucceeded(
+    controller: ResourceRunController,
+    groupKey: string,
+  ): void {
+    this.updateSnapshot(controller, (snapshot) => {
       const nextGroups = snapshot.groups.map((group) => {
         if (group.key !== groupKey) {
           return group
@@ -238,11 +252,11 @@ export class ResourceRuntime {
         progress: this.calculateProgress(nextGroups),
       }
     })
-    this.updateRunStatus(run)
+    this.updateRunStatus(controller)
   }
 
-  private completeRun(run: ResourceRun): void {
-    this.updateSnapshot(run, (snapshot) => {
+  private completeRun(controller: ResourceRunController): void {
+    this.updateSnapshot(controller, (snapshot) => {
       if (snapshot.status === 'failed') {
         return snapshot
       }
@@ -267,27 +281,43 @@ export class ResourceRuntime {
       }
     })
 
-    const snapshot = run.getSnapshot()
+    const snapshot = controller.getSnapshot()
 
-    if (!run.isReadySettled()) {
-      run.resolveReady(createReadyResult(snapshot))
+    if (!controller.isReadySettled()) {
+      controller.resolveReady(createReadyResult(snapshot))
     }
-    if (!run.isCompleteSettled()) {
-      run.resolveComplete(createCompleteResult(snapshot))
+    if (!controller.isCompleteSettled()) {
+      controller.resolveComplete(createCompleteResult(snapshot))
     }
   }
 
-  private failRun(run: ResourceRun, error: ResourceRunError): void {
-    if (!run.isReadySettled()) {
-      run.rejectReady(error)
+  private failRun(
+    controller: ResourceRunController,
+    cause: unknown,
+  ): void {
+    const endedAt = Date.now()
+
+    this.updateSnapshot(controller, (snapshot) => ({
+      ...snapshot,
+      status: 'failed',
+      endedAt: snapshot.endedAt ?? endedAt,
+    }))
+
+    const error =
+      cause instanceof ResourceRunError
+        ? cause
+        : new ResourceRunError('Resource runtime failed')
+
+    if (!controller.isReadySettled()) {
+      controller.rejectReady(error)
     }
-    if (!run.isCompleteSettled()) {
-      run.rejectComplete(error)
+    if (!controller.isCompleteSettled()) {
+      controller.rejectComplete(error)
     }
   }
 
-  private updateRunStatus(run: ResourceRun): void {
-    const snapshot = run.getSnapshot()
+  private updateRunStatus(controller: ResourceRunController): void {
+    const snapshot = controller.getSnapshot()
     const blockingGroups = snapshot.groups.filter((group) => group.blocking)
     const allBlockingReady = blockingGroups.every(
       (group) => group.status === 'ready' || group.status === 'completed',
@@ -297,17 +327,18 @@ export class ResourceRuntime {
     )
 
     if (anyBlockingFailed) {
-      this.failRun(run, new ResourceRunError('Blocking groups failed'))
+      this.failRun(controller, new ResourceRunError('Blocking groups failed'))
       return
     }
 
     if (allBlockingReady && snapshot.status === 'running') {
-      this.updateSnapshot(run, (currentSnapshot) => ({
+      this.updateSnapshot(controller, (currentSnapshot) => ({
         ...currentSnapshot,
         status: 'ready',
+        readyAt: currentSnapshot.readyAt ?? Date.now(),
       }))
-      if (!run.isReadySettled()) {
-        run.resolveReady(createReadyResult(run.getSnapshot()))
+      if (!controller.isReadySettled()) {
+        controller.resolveReady(createReadyResult(controller.getSnapshot()))
       }
     }
   }
@@ -336,9 +367,22 @@ export class ResourceRuntime {
   }
 
   private updateSnapshot(
-    run: ResourceRun,
+    controller: ResourceRunController,
     updater: (snapshot: ResourceRunSnapshot) => ResourceRunSnapshot,
   ): void {
-    run.setSnapshot(updater(run.getSnapshot()))
+    controller.setSnapshot(updater(controller.getSnapshot()))
+  }
+
+  private removeActiveItem(
+    activeItems: ResourceRunActiveItemSnapshot[],
+    item: NormalizedItem,
+  ): ResourceRunActiveItemSnapshot[] {
+    return activeItems.filter(
+      (snapshotItem) =>
+        !(
+          snapshotItem.key === item.key &&
+          snapshotItem.groupKey === item.groupKey
+        ),
+    )
   }
 }
