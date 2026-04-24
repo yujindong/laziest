@@ -3,10 +3,15 @@ import { isResourceLoaderError } from '../loaders/types'
 import type {
   AbortedPreloadResult,
   FailedPreloadResult,
-  NormalizedResourceItem,
   ResourceFailure,
+  ResourceType,
   ResourceWarning,
 } from '../shared/types'
+
+interface FailedRuntimeItem {
+  url: string
+  type: ResourceType
+}
 
 export class ResourcePreloadError extends Error {
   readonly result: FailedPreloadResult | AbortedPreloadResult
@@ -18,6 +23,14 @@ export class ResourcePreloadError extends Error {
     super(message)
     this.name = 'ResourcePreloadError'
     this.result = result
+    Object.setPrototypeOf(this, new.target.prototype)
+  }
+}
+
+export class ResourceRunError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ResourceRunError'
     Object.setPrototypeOf(this, new.target.prototype)
   }
 }
@@ -37,7 +50,7 @@ function isTimeoutError(error: unknown): boolean {
 }
 
 export function createResourceFailure(
-  item: NormalizedResourceItem,
+  item: FailedRuntimeItem,
   cause: unknown,
   attempt: number,
 ): ResourceFailure {

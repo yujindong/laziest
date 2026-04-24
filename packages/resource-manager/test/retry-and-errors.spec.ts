@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ResourceManager, ResourcePreloadError } from '../src'
+import {
+  ResourceManager,
+  ResourcePreloadError,
+  ResourceRuntime,
+  createResourcePlan,
+} from '../src'
+import { ResourceRunError } from '../src/core/errors'
 
 describe('retry and error handling', () => {
   it('rejects on required 404 failures with structured error details', async () => {
@@ -209,5 +215,35 @@ describe('retry and error handling', () => {
         retryAfterMs: 0,
       }),
     )
+  })
+
+  it('rejects readiness and completion waiters when a blocking group fails', async () => {
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'critical',
+            blocking: true,
+            items: [{ type: 'image', url: '/broken.png' }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async () => {
+            throw new Error('boom')
+          },
+        },
+      },
+    )
+
+    const run = runtime.start()
+
+    await expect(run.waitForReady()).rejects.toBeInstanceOf(ResourceRunError)
+    await expect(run.waitForAll()).rejects.toBeInstanceOf(ResourceRunError)
+    expect(run.getSnapshot()).toMatchObject({
+      status: 'failed',
+      errors: [{ code: 'unknown', attempt: 1 }],
+    })
   })
 })

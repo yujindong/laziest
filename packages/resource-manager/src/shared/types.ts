@@ -166,6 +166,13 @@ export type ResourceManagerStatus =
   | 'failed'
   | 'aborted'
 
+export type ResourceRunStatus =
+  | 'idle'
+  | 'running'
+  | 'ready'
+  | 'completed'
+  | 'failed'
+
 export type ResourceItemStatus =
   | 'queued'
   | 'loading'
@@ -255,9 +262,25 @@ export interface ResourceLoadContext {
 export interface ResourceRuntimeOptions {
   maxConcurrentItems?: number
   retry?: RetryOptions
-  loaders?: Partial<ResourceLoaderRegistry>
+  loaders?: Partial<ResourceRuntimeLoaderRegistry>
   logger?: ResourceLogger
   logLevel?: LogLevel
+}
+
+export type ResourceRuntimeLoader = (
+  item: NormalizedItem,
+  context: ResourceLoadContext,
+) => PromiseLike<unknown> | unknown
+
+export interface ResourceRuntimeLoaderRegistry {
+  image: ResourceRuntimeLoader
+  font: ResourceRuntimeLoader
+  audio: ResourceRuntimeLoader
+  video: ResourceRuntimeLoader
+  lottie: ResourceRuntimeLoader
+  json: ResourceRuntimeLoader
+  text: ResourceRuntimeLoader
+  binary: ResourceRuntimeLoader
 }
 
 export interface NormalizedResourceItem {
@@ -435,6 +458,66 @@ export interface BasePreloadResult {
   skipped: number
   duration: number
   items: ResourceItemSnapshot[]
+  errors: ResourceFailure[]
+  warnings: ResourceWarning[]
+}
+
+export type ResourceRunGroupStatus =
+  | 'queued'
+  | 'running'
+  | 'ready'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+
+export interface ResourceRunGroupSnapshot {
+  key: string
+  blocking: boolean
+  priority: number
+  totalItems: number
+  completedItems: number
+  status: ResourceRunGroupStatus
+  startedAt: number | null
+  endedAt: number | null
+}
+
+export interface ResourceRunActiveItemSnapshot {
+  key: string
+  groupKey: string
+  url: string
+  type: ResourceType
+  startedAt: number
+}
+
+export interface ResourceRunSnapshot {
+  status: ResourceRunStatus
+  startedAt: number | null
+  endedAt: number | null
+  progress: number
+  groups: ResourceRunGroupSnapshot[]
+  activeItems: ResourceRunActiveItemSnapshot[]
+  errors: ResourceFailure[]
+  warnings: ResourceWarning[]
+}
+
+export interface ResourceReadyResult {
+  status: 'ready' | 'failed'
+  startedAt: number | null
+  readyAt: number | null
+  progress: number
+  groups: ResourceRunGroupSnapshot[]
+  activeItems: ResourceRunActiveItemSnapshot[]
+  errors: ResourceFailure[]
+  warnings: ResourceWarning[]
+}
+
+export interface ResourceCompleteResult {
+  status: 'completed' | 'failed'
+  startedAt: number | null
+  endedAt: number | null
+  progress: number
+  groups: ResourceRunGroupSnapshot[]
+  activeItems: ResourceRunActiveItemSnapshot[]
   errors: ResourceFailure[]
   warnings: ResourceWarning[]
 }

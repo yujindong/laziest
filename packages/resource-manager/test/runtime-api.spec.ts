@@ -97,4 +97,53 @@ describe("runtime api", () => {
       headers: { "x-trace": "alpha" },
     });
   });
+
+  it("resolves waitForReady before non-blocking groups finish", async () => {
+    const order: string[] = [];
+    let releaseBackground!: () => void;
+    const backgroundStarted = new Promise<void>((resolve) => {
+      releaseBackground = resolve;
+    });
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: "critical",
+            blocking: true,
+            priority: 100,
+            items: [{ type: "image", url: "/hero.png" }],
+          },
+          {
+            key: "background",
+            blocking: false,
+            priority: 1,
+            items: [{ type: "image", url: "/gallery.png" }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async (item) => {
+            order.push(item.url);
+            if (item.url === "/gallery.png") {
+              await backgroundStarted;
+            }
+          },
+        },
+      },
+    );
+
+    const run = runtime.start();
+    await run.waitForReady();
+
+    expect(run.getSnapshot().status).toBe("ready");
+    expect(order).toEqual(["/hero.png", "/gallery.png"]);
+
+    releaseBackground();
+
+    await run.waitForAll();
+    expect(run.getSnapshot().status).toBe("completed");
+    expect(order).toEqual(["/hero.png", "/gallery.png"]);
+  });
 });
