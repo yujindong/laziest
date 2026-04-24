@@ -1,5 +1,13 @@
 # @laziest/resource-manager
 
+## 0.3.0
+
+### Minor Changes
+
+- 5f03d80: Add a singleton runtime run handle via `getRun()` and make `start()` reuse the same `ResourceRun` instance.
+
+  This lets multiple pages or modules access the same in-flight runtime run without creating duplicate runs.
+
 ## 0.2.0
 
 ### Minor Changes
