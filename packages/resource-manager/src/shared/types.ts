@@ -55,6 +55,64 @@ export interface ResourcePlan {
   groups: ResourceGroup[]
 }
 
+function cloneHeaders(headers: RequestInit['headers']): RequestInit['headers'] | undefined {
+  if (!headers) {
+    return undefined
+  }
+
+  if (headers instanceof Headers) {
+    return Array.from(headers.entries())
+  }
+
+  if (Array.isArray(headers)) {
+    return headers.map(([key, value]) => [key, value] as [string, string])
+  }
+
+  return Object.fromEntries(Object.entries(headers))
+}
+
+function cloneRequestInit(requestInit: RequestInit): RequestInit {
+  return {
+    ...requestInit,
+    headers: cloneHeaders(requestInit.headers),
+  }
+}
+
+function cloneResourceItem(item: ResourceItem): ResourceItem {
+  switch (item.type) {
+    case 'font':
+      return {
+        ...item,
+        descriptors: item.descriptors ? { ...item.descriptors } : undefined,
+      }
+    case 'json':
+    case 'text':
+    case 'binary':
+    case 'lottie':
+      return {
+        ...item,
+        requestInit: item.requestInit
+          ? cloneRequestInit(item.requestInit)
+          : undefined,
+      }
+    case 'image':
+    case 'audio':
+    case 'video':
+      return { ...item }
+  }
+}
+
+export function normalizeResourcePlan(plan: ResourcePlan): ResourcePlan {
+  return {
+    groups: plan.groups.map((group) => ({
+      key: group.key,
+      priority: group.priority ?? 0,
+      blocking: group.blocking ?? false,
+      items: group.items.map(cloneResourceItem),
+    })),
+  }
+}
+
 export type ResourceBucketName =
   | 'images'
   | 'fonts'

@@ -55,4 +55,46 @@ describe("runtime api", () => {
 
     expect(run.plan.groups[0].items[0]).not.toBe(rawPlan.groups[0].items[0]);
   });
+
+  it("isolates nested request config when creating a plan", () => {
+    const headers = { "x-trace": "alpha" };
+
+    const plan = createResourcePlan({
+      groups: [
+        {
+          key: "data",
+          items: [
+            {
+              type: "json",
+              url: "/data.json",
+              requestInit: {
+                method: "POST",
+                headers,
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    const plannedItem = plan.groups[0].items[0];
+    if (!("requestInit" in plannedItem)) {
+      throw new Error("expected data item");
+    }
+    const requestInit = plannedItem.requestInit;
+
+    expect(requestInit).toMatchObject({
+      method: "POST",
+      headers: { "x-trace": "alpha" },
+    });
+    expect(requestInit).not.toBeUndefined();
+    expect(requestInit?.headers).not.toBe(headers);
+
+    headers["x-trace"] = "beta";
+
+    expect(plannedItem.requestInit).toMatchObject({
+      method: "POST",
+      headers: { "x-trace": "alpha" },
+    });
+  });
 });
