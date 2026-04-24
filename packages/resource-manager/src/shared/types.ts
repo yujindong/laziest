@@ -172,6 +172,7 @@ export type ResourceRunStatus =
   | 'ready'
   | 'completed'
   | 'failed'
+  | 'aborted'
 
 export type ResourceItemStatus =
   | 'queued'

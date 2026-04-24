@@ -9,7 +9,11 @@ import {
   createIdleRunSnapshot,
   createReadyResult,
 } from './resource-run'
-import { ResourceRunError, createResourceFailure } from './errors'
+import {
+  ResourceRunError,
+  createResourceFailure,
+  createResourceSkippedWarning,
+} from './errors'
 import { runWithRetry } from './retry'
 import type {
   NormalizedGroup,
@@ -90,6 +94,10 @@ function isResourceFailure(value: unknown): value is ReturnType<typeof createRes
   )
 }
 
+function isTerminalRunStatus(status: ResourceRunSnapshot['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'aborted'
+}
+
 export { ResourceRun } from './resource-run'
 
 export class ResourceRuntime {
@@ -112,7 +120,7 @@ export class ResourceRuntime {
 
     controller.setAbortHandler(() => {
       const status = controller.getSnapshot().status
-      if (status === 'completed' || status === 'failed') {
+      if (isTerminalRunStatus(status)) {
         return
       }
 
@@ -125,7 +133,7 @@ export class ResourceRuntime {
       for (const activeController of activeItemControllers) {
         activeController.abort(reason)
       }
-      this.failRun(controller, new ResourceRunError('Resource runtime aborted'))
+      this.abortRun(controller, new ResourceRunError('Resource runtime aborted'))
     })
     controller.setSnapshot(createRunningRunSnapshot(groups))
     this.updateRunStatus(controller)
@@ -149,7 +157,7 @@ export class ResourceRuntime {
     const failedGroups = new Set<string>()
 
     for (const { item } of buildPrioritySchedulingUnits(groups)) {
-      if (signal.aborted || controller.getSnapshot().status === 'failed') {
+      if (signal.aborted || isTerminalRunStatus(controller.getSnapshot().status)) {
         break
       }
 
@@ -190,7 +198,7 @@ export class ResourceRuntime {
       }
     }
 
-    if (controller.getSnapshot().status === 'failed') {
+    if (isTerminalRunStatus(controller.getSnapshot().status)) {
       return
     }
 
@@ -246,10 +254,15 @@ export class ResourceRuntime {
       this.updateRunStatus(controller)
       return true
     } catch (cause) {
+      if (signal.aborted || controller.getSnapshot().status === 'aborted') {
+        return false
+      }
+
       const failure = isResourceFailure(cause)
         ? cause
         : createResourceFailure(item, cause, 1)
       const endedAt = Date.now()
+      const isOptionalFailure = item.optional
 
       this.updateSnapshot(controller, (snapshot) => ({
         ...snapshot,
@@ -257,16 +270,35 @@ export class ResourceRuntime {
           snapshotGroup.key === group.key
             ? {
                 ...snapshotGroup,
-                status: 'failed',
-                endedAt,
+                status: isOptionalFailure ? snapshotGroup.status : 'failed',
+                completedItems: isOptionalFailure
+                  ? snapshotGroup.completedItems + 1
+                  : snapshotGroup.completedItems,
+                endedAt: isOptionalFailure ? snapshotGroup.endedAt : endedAt,
               }
             : snapshotGroup,
         ),
         activeItems: this.removeActiveItem(snapshot.activeItems, item),
         errors: [...snapshot.errors, failure],
+        warnings: isOptionalFailure
+          ? [...snapshot.warnings, createResourceSkippedWarning(failure)]
+          : snapshot.warnings,
       }))
 
-      if (group.blocking) {
+      if (isOptionalFailure) {
+        const snapshotGroup = controller
+          .getSnapshot()
+          .groups.find((candidate) => candidate.key === group.key)
+
+        if (
+          snapshotGroup &&
+          snapshotGroup.completedItems === snapshotGroup.totalItems
+        ) {
+          this.markGroupSucceeded(controller, group.key)
+        } else {
+          this.updateRunStatus(controller)
+        }
+      } else if (group.blocking) {
         this.updateSnapshot(controller, (snapshot) => ({
           ...snapshot,
           status: 'failed',
@@ -394,7 +426,7 @@ export class ResourceRuntime {
 
   private completeRun(controller: ResourceRunController): void {
     this.updateSnapshot(controller, (snapshot) => {
-      if (snapshot.status === 'failed') {
+      if (snapshot.status === 'failed' || snapshot.status === 'aborted') {
         return snapshot
       }
 
@@ -444,6 +476,27 @@ export class ResourceRuntime {
       cause instanceof ResourceRunError
         ? cause
         : new ResourceRunError('Resource runtime failed')
+
+    if (!controller.isReadySettled()) {
+      controller.rejectReady(error)
+    }
+    if (!controller.isCompleteSettled()) {
+      controller.rejectComplete(error)
+    }
+  }
+
+  private abortRun(
+    controller: ResourceRunController,
+    error: ResourceRunError,
+  ): void {
+    const endedAt = Date.now()
+
+    this.updateSnapshot(controller, (snapshot) => ({
+      ...snapshot,
+      status: 'aborted',
+      endedAt: snapshot.endedAt ?? endedAt,
+      activeItems: [],
+    }))
 
     if (!controller.isReadySettled()) {
       controller.rejectReady(error)

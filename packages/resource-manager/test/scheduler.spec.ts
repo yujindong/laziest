@@ -197,4 +197,44 @@ describe("runtime execution", () => {
 
     expect(loader).toHaveBeenCalledTimes(1);
   });
+
+  it("does not reuse cache entries when loader-relevant config differs", async () => {
+    const loader = vi.fn(async () => ({ ok: true }));
+    const cache = new Map<string, unknown>();
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: "data",
+            blocking: true,
+            items: [
+              {
+                type: "json",
+                url: "/bootstrap.json",
+                requestInit: { method: "GET" },
+              },
+              {
+                type: "json",
+                url: "/bootstrap.json",
+                requestInit: { method: "POST" },
+              },
+            ],
+          },
+        ],
+      }),
+      {
+        cache: {
+          get: (key) => cache.get(key),
+          set: (key, value) => void cache.set(key, value),
+        },
+        loaders: { json: loader },
+      },
+    );
+
+    await runtime.start().waitForAll();
+
+    expect(loader).toHaveBeenCalledTimes(2);
+    expect(cache.size).toBe(2);
+  });
 });

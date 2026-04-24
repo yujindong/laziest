@@ -1,7 +1,7 @@
 import type { NormalizedItem, ResourceCache } from '../shared/types'
 
 export function createCacheKey(item: NormalizedItem): string {
-  return `${item.type}:${item.url}`
+  return item.dedupeKey
 }
 
 export async function resolveCachedValue(

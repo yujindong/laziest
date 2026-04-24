@@ -330,4 +330,102 @@ describe('retry and error handling', () => {
       ],
     })
   })
+
+  it('allows optional failures in blocking groups without rejecting readiness', async () => {
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'critical',
+            blocking: true,
+            items: [
+              { type: 'image', url: '/hero.png' },
+              { type: 'image', url: '/optional.png', optional: true },
+            ],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async (item) => {
+            if (item.url === '/optional.png') {
+              throw new Error('optional failed')
+            }
+          },
+        },
+      },
+    )
+
+    const run = runtime.start()
+
+    await expect(run.waitForReady()).resolves.toMatchObject({
+      status: 'ready',
+      warnings: [
+        {
+          code: 'OPTIONAL_RESOURCE_SKIPPED',
+          url: '/optional.png',
+        },
+      ],
+    })
+    await expect(run.waitForAll()).resolves.toMatchObject({
+      status: 'completed',
+      warnings: [
+        {
+          code: 'OPTIONAL_RESOURCE_SKIPPED',
+          url: '/optional.png',
+        },
+      ],
+    })
+  })
+
+  it('marks active runs as aborted and rejects waiters when aborted', async () => {
+    let releaseImage!: () => void
+    const imagePending = new Promise<void>((resolve) => {
+      releaseImage = resolve
+    })
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'critical',
+            blocking: true,
+            items: [{ type: 'image', url: '/hero.png' }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async (_item, context) => {
+            await new Promise<void>((resolve, reject) => {
+              const onAbort = () => {
+                context.signal.removeEventListener('abort', onAbort)
+                reject(context.signal.reason)
+              }
+
+              context.signal.addEventListener('abort', onAbort, { once: true })
+              imagePending.then(() => {
+                context.signal.removeEventListener('abort', onAbort)
+                resolve()
+              })
+            })
+          },
+        },
+      },
+    )
+
+    const run = runtime.start()
+    const readyPromise = run.waitForReady()
+    const allPromise = run.waitForAll()
+
+    run.abort()
+    releaseImage()
+
+    await expect(readyPromise).rejects.toBeInstanceOf(ResourceRunError)
+    await expect(allPromise).rejects.toBeInstanceOf(ResourceRunError)
+    expect(run.getSnapshot()).toMatchObject({
+      status: 'aborted',
+      activeItems: [],
+    })
+  })
 })
