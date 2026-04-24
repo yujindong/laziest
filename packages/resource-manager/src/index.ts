@@ -3,7 +3,9 @@ import type { ResourcePlan } from './shared/types'
 
 export { ResourceManager } from './core/resource-manager'
 export { ResourcePreloadError } from './core/errors'
+export { normalizePlan, sortScheduledItems } from './core/plan'
 export { ResourceRun, ResourceRuntime } from './core/resource-runtime'
+export { buildPrioritySchedulingUnits } from './core/scheduler'
 export { consoleResourceLogger, shouldLog } from './shared/logger'
 export type * from './shared/types'
 

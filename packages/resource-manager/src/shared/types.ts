@@ -63,7 +63,7 @@ export interface NormalizedGroup {
   items: NormalizedItem[]
 }
 
-export interface NormalizedItem {
+export type NormalizedItem = ResourceItem & {
   key: string
   groupKey: string
   url: string
