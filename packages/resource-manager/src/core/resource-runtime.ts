@@ -16,6 +16,7 @@ import {
   createResourceSkippedWarning,
 } from './errors'
 import { runWithRetry } from './retry'
+import { runWithConcurrency } from '../shared/queue'
 import type {
   NormalizedGroup,
   NormalizedItem,
@@ -212,48 +213,53 @@ export class ResourceRuntime {
     const loadCache: InRunLoadCache = new Map()
     const groupsByKey = new Map(groups.map((group) => [group.key, group]))
     const failedGroups = new Set<string>()
+    const schedulingUnits = buildPrioritySchedulingUnits(groups)
 
-    for (const { item } of buildPrioritySchedulingUnits(groups)) {
-      if (signal.aborted || isTerminalRunStatus(controller.getSnapshot().status)) {
-        break
-      }
+    await runWithConcurrency(
+      schedulingUnits,
+      this.options.maxConcurrentItems ?? 1,
+      async ({ item }) => {
+        if (
+          signal.aborted ||
+          isTerminalRunStatus(controller.getSnapshot().status) ||
+          failedGroups.has(item.groupKey)
+        ) {
+          return
+        }
 
-      if (failedGroups.has(item.groupKey)) {
-        continue
-      }
+        const group = groupsByKey.get(item.groupKey)
 
-      const group = groupsByKey.get(item.groupKey)
+        if (!group) {
+          return
+        }
 
-      if (!group) {
-        continue
-      }
+        this.markGroupStarted(controller, group.key)
 
-      this.markGroupStarted(controller, group.key)
+        const itemSucceeded = await this.executeItem(
+          controller,
+          group,
+          item,
+          signal,
+          activeItemControllers,
+          loadCache,
+        )
+        if (!itemSucceeded) {
+          failedGroups.add(group.key)
+          return
+        }
 
-      const itemSucceeded = await this.executeItem(
-        controller,
-        group,
-        item,
-        signal,
-        activeItemControllers,
-        loadCache,
-      )
-      if (!itemSucceeded) {
-        failedGroups.add(group.key)
-        continue
-      }
+        const snapshotGroup = controller
+          .getSnapshot()
+          .groups.find((candidate) => candidate.key === group.key)
 
-      const snapshotGroup = controller
-        .getSnapshot()
-        .groups.find((candidate) => candidate.key === group.key)
-
-      if (
-        snapshotGroup &&
-        snapshotGroup.completedItems === snapshotGroup.totalItems
-      ) {
-        this.markGroupSucceeded(controller, group.key)
-      }
-    }
+        if (
+          snapshotGroup &&
+          snapshotGroup.completedItems === snapshotGroup.totalItems
+        ) {
+          this.markGroupSucceeded(controller, group.key)
+        }
+      },
+    )
 
     if (isTerminalRunStatus(controller.getSnapshot().status)) {
       return

@@ -1,8 +1,8 @@
 # `@laziest/resource-manager`
 
-面向浏览器应用的资源加载库，支持优先级调度和提前进入可展示状态。
+面向浏览器应用的资源加载库，支持静态 plan、优先级调度、blocking group 与后台续载。
 
-`@laziest/resource-manager` 使用静态 `ResourcePlan` 描述资源，通过 `ResourceRuntime` 按优先级执行，并允许关键资源完成后先继续渲染界面，非关键资源在后台继续加载。
+`@laziest/resource-manager` 使用静态 `ResourcePlan` 描述资源，通过 `ResourceRuntime` 按 group 和 item 优先级执行，等待 blocking group 完成，同时让 non-blocking group 在后台继续加载，并通过快照和订阅暴露运行状态。
 
 ## 特性
 
@@ -21,6 +21,31 @@
 ```bash
 pnpm add @laziest/resource-manager
 ```
+
+## 浏览器兼容性
+
+- 浏览器运行环境，且支持 `fetch`、`AbortController` 与 `URL`
+- 加载字体时需要 `FontFace`
+- 加载音视频时需要媒体元素的 preload 能力
+
+如果目标浏览器不具备这些能力，需要在创建 `ResourceRuntime` 之前先加载 polyfill。
+
+```bash
+pnpm add whatwg-fetch abortcontroller-polyfill core-js
+```
+
+```ts
+import 'whatwg-fetch'
+import 'abortcontroller-polyfill/dist/abortcontroller-polyfill-only'
+import 'core-js/actual/url'
+```
+
+说明：
+
+- `whatwg-fetch` 是浏览器侧的 `fetch()` polyfill，应只在客户端加载
+- `abortcontroller-polyfill` 用于补齐 `AbortController` 与 `AbortSignal`；只有在环境确实需要时才使用它的 fetch patch 入口
+- `core-js/actual/url` 可用于补齐旧浏览器缺失的 `URL`
+- 如果你的应用已经通过 Babel、`@core-js/unplugin` 或其他构建步骤自动注入 polyfill，应以那一套为准，避免重复引入
 
 ## 快速开始
 
@@ -112,6 +137,8 @@ const plan = createResourcePlan({
 
 - `blocking: true` 表示该 group 会影响 runtime ready
 - `optional: true` 表示该资源失败后转成 warning，不让 group 失败
+
+`maxConcurrentItems` 用于限制单次 run 中同时活跃的加载数量。优先级只影响排队顺序，不会抢占已经开始的任务。
 
 ## Resource Items
 
@@ -245,7 +272,3 @@ try {
 - `parse`
 - `unsupported`
 - `unknown`
-
-## 兼容说明
-
-包仍然导出旧版 `ResourceManager` preload API 以保持兼容。新应用建议优先使用 `ResourcePlan`、`ResourceRuntime` 和 `ResourceRun`。

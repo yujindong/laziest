@@ -1,8 +1,8 @@
 # `@laziest/resource-manager`
 
-Browser-only resource loading for applications that need priority scheduling and early readiness.
+Browser-only resource loading with static plans, priority scheduling, blocking groups, and background continuation.
 
-`@laziest/resource-manager` lets you describe resources as a static plan, run them through a priority-first runtime, continue background loading after critical resources are ready, and observe runtime progress through snapshots and subscriptions.
+`@laziest/resource-manager` lets you describe resources as a static plan, schedule them by group and item priority, wait for blocking groups, keep non-blocking groups loading in the background, and observe runtime progress through snapshots and subscriptions.
 
 ## Features
 
@@ -21,6 +21,31 @@ Browser-only resource loading for applications that need priority scheduling and
 ```bash
 pnpm add @laziest/resource-manager
 ```
+
+## Browser Compatibility
+
+- Browser runtime with `fetch`, `AbortController`, and `URL`
+- `FontFace` support when loading fonts
+- Media element preload support when loading audio or video
+
+If your target browsers do not provide these APIs, load the polyfills before creating a `ResourceRuntime`.
+
+```bash
+pnpm add whatwg-fetch abortcontroller-polyfill core-js
+```
+
+```ts
+import 'whatwg-fetch'
+import 'abortcontroller-polyfill/dist/abortcontroller-polyfill-only'
+import 'core-js/actual/url'
+```
+
+Notes:
+
+- `whatwg-fetch` is a browser-only `fetch()` polyfill and should be loaded on the client
+- `abortcontroller-polyfill` fills `AbortController` and `AbortSignal`; use the fetch patch entry only if your environment needs it
+- `core-js/actual/url` can be used when `URL` is missing in older browsers
+- If your app already injects polyfills through Babel, `@core-js/unplugin`, or another build step, prefer that single source of truth instead of importing them twice
 
 ## Quick Start
 
@@ -112,6 +137,8 @@ Scheduling order is deterministic:
 
 - `blocking: true` means the group is required before runtime readiness
 - `optional: true` means a resource failure becomes a warning instead of failing its group
+
+`maxConcurrentItems` limits the number of actively loading items in a run. Priorities decide queue order; they do not preempt items that have already started.
 
 ## Resource Items
 
@@ -245,7 +272,3 @@ Failure categories include:
 - `parse`
 - `unsupported`
 - `unknown`
-
-## Legacy Manager
-
-The package still exports the older `ResourceManager` preload API for compatibility. New applications should prefer `ResourcePlan`, `ResourceRuntime`, and `ResourceRun`.

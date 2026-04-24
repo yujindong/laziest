@@ -166,6 +166,59 @@ describe("plan scheduling", () => {
 });
 
 describe("runtime execution", () => {
+  it("never exceeds the configured runtime concurrency window", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const releases: Array<() => void> = [];
+    const loader = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          releases.push(() => {
+            active -= 1;
+            resolve();
+          });
+        }),
+    );
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: "critical",
+            blocking: true,
+            items: [
+              { type: "json", url: "/a.json" },
+              { type: "json", url: "/b.json" },
+              { type: "json", url: "/c.json" },
+            ],
+          },
+        ],
+      }),
+      {
+        maxConcurrentItems: 2,
+        loaders: { json: loader },
+      },
+    );
+
+    const allPromise = runtime.start().waitForAll();
+
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalledTimes(2);
+    });
+    expect(maxActive).toBe(2);
+
+    releases.shift()?.();
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalledTimes(3);
+    });
+    expect(maxActive).toBe(2);
+
+    releases.forEach((release) => release());
+    await allPromise;
+  });
+
   it("dedupes repeated resources and reuses cache across runs", async () => {
     const loader = vi.fn(async () => ({ ok: true }));
     const cache = new Map<string, unknown>();

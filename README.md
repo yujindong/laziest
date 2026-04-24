@@ -6,7 +6,7 @@
 
 ### `@laziest/resource-manager`
 
-Browser-only resource preloading for images, fonts, audio, video, lottie JSON, JSON, text, and binary assets.
+Browser-only resource loading with static plans, priority scheduling, blocking groups, and background continuation.
 
 - Package README: [`packages/resource-manager/README.md`](./packages/resource-manager/README.md)
 - Chinese README: [`packages/resource-manager/README.zh-CN.md`](./packages/resource-manager/README.zh-CN.md)
