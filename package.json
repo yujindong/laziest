@@ -8,6 +8,7 @@
     "email": "yujindong1985@gmail.com"
   },
   "scripts": {
+    "dev": "pnpm --filter @laziest/example-react dev",
     "changeset": "changeset",
     "changeset:status": "changeset status --verbose",
     "build": "pnpm -r --filter \"./packages/*\" run build",

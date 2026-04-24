@@ -7,7 +7,7 @@ import {
 import { useEffect, useState } from "react";
 
 const img1List = [
-  "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/11title.png",
+  // "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/11title.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/cover.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/answer_wrong.png",
   "https://pintu-image.go.sohu.com/activities/2026-spring-festival-games/v1/game01/answer_right.png",
@@ -63,7 +63,7 @@ const plan = createResourcePlan({
       priority: 100,
       blocking: true,
       items: [
-        ...img1List.slice(0, 2).map((url) => ({
+        ...img1List.map((url) => ({
           type: "image" as const,
           url,
           optional: true,
@@ -73,8 +73,8 @@ const plan = createResourcePlan({
           type: "font" as const,
           url: "https://pintu-image.go.sohu.com/activities/fonts/FZLTDHK.TTF",
           family: "方正兰亭大黑",
-          optional: true,
-          priority: 80,
+          optional: false,
+          priority: 10,
         },
       ],
     },
@@ -89,7 +89,7 @@ const plan = createResourcePlan({
           optional: true,
         })),
         ...[
-          "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-12604081100.mp4",
+          // "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/bg-12604081100.mp4",
           "https://pintu-image.go.sohu.com/lingchuang/home/v2/feature01/loop-2604081100.mp4",
         ].map((url) => ({
           type: "video" as const,
@@ -102,7 +102,7 @@ const plan = createResourcePlan({
 });
 
 const runtime = new ResourceRuntime(plan, {
-  maxConcurrentItems: 3,
+  maxConcurrentItems: 1,
   logLevel: "debug",
   retry: { maxRetries: 1, delayMs: 200, backoff: "fixed" },
 });
@@ -111,13 +111,11 @@ const ResourceManagerPage = () => {
   const [snapshot, setSnapshot] = useState<ResourceRunSnapshot>(() =>
     new ResourceRun(plan).getSnapshot(),
   );
+
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const run = runtime.start();
-    setReady(false);
-    setSnapshot(run.getSnapshot());
-
     const unsubscribe = run.subscribe(({ snapshot }) => {
       setSnapshot(snapshot);
     });
