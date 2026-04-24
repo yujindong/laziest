@@ -146,4 +146,44 @@ describe("runtime api", () => {
     expect(run.getSnapshot().status).toBe("completed");
     expect(order).toEqual(["/hero.png", "/gallery.png"]);
   });
+
+  it("resolves waitForReady for non-blocking-only plans before work completes", async () => {
+    let releaseImage!: () => void;
+    const imagePending = new Promise<void>((resolve) => {
+      releaseImage = resolve;
+    });
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: "background",
+            blocking: false,
+            items: [{ type: "image", url: "/gallery.png" }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async () => {
+            await imagePending;
+          },
+        },
+      },
+    );
+
+    const run = runtime.start();
+    await run.waitForReady();
+
+    expect(run.getSnapshot()).toMatchObject({
+      status: "ready",
+      groups: [{ key: "background", status: "running" }],
+      activeItems: [{ url: "/gallery.png" }],
+    });
+
+    releaseImage();
+
+    await run.waitForAll();
+    expect(run.getSnapshot().status).toBe("completed");
+  });
 });

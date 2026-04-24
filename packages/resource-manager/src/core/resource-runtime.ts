@@ -86,6 +86,7 @@ export class ResourceRuntime {
     const run = new ResourceRun(this.plan, this.options)
     const groups = normalizePlan(this.plan)
     run.setSnapshot(createRunningRunSnapshot(groups))
+    this.updateRunStatus(run)
     void this.execute(run, groups)
     return run
   }
@@ -106,7 +107,11 @@ export class ResourceRuntime {
     this.markGroupStarted(run, group.key)
 
     for (const item of group.items) {
-      await this.executeItem(run, group, item)
+      const itemSucceeded = await this.executeItem(run, group, item)
+      if (!itemSucceeded) {
+        return
+      }
+
       if (run.getSnapshot().status === 'failed') {
         return
       }
@@ -119,7 +124,7 @@ export class ResourceRuntime {
     run: ResourceRun,
     group: NormalizedGroup,
     item: NormalizedItem,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const startedAt = Date.now()
     const activeItem = createActiveItemSnapshot(item, startedAt)
     const loader = this.getLoader(item.type)
@@ -151,14 +156,13 @@ export class ResourceRuntime {
         }
       })
       this.updateRunStatus(run)
+      return true
     } catch (cause) {
       const failure = createResourceFailure(item, cause, 1)
       const endedAt = Date.now()
 
       this.updateSnapshot(run, (snapshot) => ({
         ...snapshot,
-        status: 'failed',
-        endedAt,
         groups: snapshot.groups.map((snapshotGroup) =>
           snapshotGroup.key === group.key
             ? {
@@ -173,7 +177,19 @@ export class ResourceRuntime {
         ),
         errors: [...snapshot.errors, failure],
       }))
-      this.failRun(run, new ResourceRunError('Blocking groups failed'))
+
+      if (group.blocking) {
+        this.updateSnapshot(run, (snapshot) => ({
+          ...snapshot,
+          status: 'failed',
+          endedAt: snapshot.endedAt ?? endedAt,
+        }))
+        this.failRun(run, new ResourceRunError('Blocking groups failed'))
+      } else {
+        this.updateRunStatus(run)
+      }
+
+      return false
     }
   }
 

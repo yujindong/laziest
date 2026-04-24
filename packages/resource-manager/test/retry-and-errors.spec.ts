@@ -246,4 +246,60 @@ describe('retry and error handling', () => {
       errors: [{ code: 'unknown', attempt: 1 }],
     })
   })
+
+  it('does not reject waitForReady when a non-blocking group fails', async () => {
+    let releaseCritical!: () => void
+    const criticalPending = new Promise<void>((resolve) => {
+      releaseCritical = resolve
+    })
+
+    const runtime = new ResourceRuntime(
+      createResourcePlan({
+        groups: [
+          {
+            key: 'critical',
+            blocking: true,
+            items: [{ type: 'image', url: '/hero.png' }],
+          },
+          {
+            key: 'background',
+            blocking: false,
+            items: [{ type: 'image', url: '/broken.png' }],
+          },
+        ],
+      }),
+      {
+        loaders: {
+          image: async (item) => {
+            if (item.url === '/hero.png') {
+              await criticalPending
+              return
+            }
+
+            throw new Error('background failed')
+          },
+        },
+      },
+    )
+
+    const run = runtime.start()
+    releaseCritical()
+
+    await expect(run.waitForReady()).resolves.toMatchObject({
+      status: 'ready',
+    })
+
+    const result = await run.waitForAll()
+    expect(result).toMatchObject({
+      status: 'completed',
+      errors: [{ code: 'unknown', url: '/broken.png', attempt: 1 }],
+    })
+    expect(run.getSnapshot()).toMatchObject({
+      status: 'completed',
+      groups: [
+        { key: 'critical', status: 'completed' },
+        { key: 'background', status: 'failed' },
+      ],
+    })
+  })
 })
