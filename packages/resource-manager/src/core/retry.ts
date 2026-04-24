@@ -91,3 +91,87 @@ export async function waitForRetryDelay(ms: number): Promise<void> {
     setTimeout(resolve, ms)
   })
 }
+
+function createAbortError(): DOMException | Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Aborted', 'AbortError')
+  }
+
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+async function waitForRetryDelayOrAbort(
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (ms <= 0) {
+    if (signal?.aborted) {
+      throw signal.reason ?? createAbortError()
+    }
+    return
+  }
+
+  if (!signal) {
+    await waitForRetryDelay(ms)
+    return
+  }
+
+  if (signal.aborted) {
+    throw signal.reason ?? createAbortError()
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout)
+      signal.removeEventListener('abort', onAbort)
+    }
+    const timeout = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      cleanup()
+      reject(signal.reason ?? createAbortError())
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export interface RunWithRetryOptions {
+  retry?: RetryOptions
+  signal?: AbortSignal
+  createFailure(cause: unknown, attempt: number): ResourceFailure
+  onRetry?(failure: ResourceFailure, retryAfterMs: number): void
+}
+
+export async function runWithRetry<T>(
+  operation: (attempt: number) => PromiseLike<T> | T,
+  options: RunWithRetryOptions,
+): Promise<T> {
+  let attempt = 0
+
+  while (true) {
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? createAbortError()
+    }
+
+    attempt += 1
+
+    try {
+      return await operation(attempt)
+    } catch (cause) {
+      const failure = options.createFailure(cause, attempt)
+
+      if (!shouldRetryFailure(failure, attempt, options.retry)) {
+        throw failure
+      }
+
+      const retryAfterMs = getRetryDelayMs(attempt, options.retry)
+      options.onRetry?.(failure, retryAfterMs)
+      await waitForRetryDelayOrAbort(retryAfterMs, options.signal)
+    }
+  }
+}

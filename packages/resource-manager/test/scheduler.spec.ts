@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildPrioritySchedulingUnits,
   createResourcePlan,
   normalizePlan,
+  ResourceRuntime,
   sortScheduledItems,
 } from "../src";
 
@@ -161,5 +162,39 @@ describe("plan scheduling", () => {
       blocking: false,
       item: { url: "/bg.png", groupKey: "background" },
     });
+  });
+});
+
+describe("runtime execution", () => {
+  it("dedupes repeated resources and reuses cache across runs", async () => {
+    const loader = vi.fn(async () => ({ ok: true }));
+    const cache = new Map<string, unknown>();
+
+    const plan = createResourcePlan({
+      groups: [
+        {
+          key: "critical",
+          blocking: true,
+          priority: 100,
+          items: [
+            { type: "json", url: "/bootstrap.json" },
+            { type: "json", url: "/bootstrap.json" },
+          ],
+        },
+      ],
+    });
+
+    const runtime = new ResourceRuntime(plan, {
+      cache: {
+        get: (key) => cache.get(key),
+        set: (key, value) => void cache.set(key, value),
+      },
+      loaders: { json: loader },
+    });
+
+    await runtime.start().waitForAll();
+    await runtime.start().waitForAll();
+
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 });

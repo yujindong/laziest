@@ -1,4 +1,6 @@
 import { normalizePlan } from './plan'
+import { resolveCachedValue, writeCacheValue } from './cache'
+import { buildPrioritySchedulingUnits } from './scheduler'
 import {
   ResourceRun,
   type ResourceRunController,
@@ -8,6 +10,7 @@ import {
   createReadyResult,
 } from './resource-run'
 import { ResourceRunError, createResourceFailure } from './errors'
+import { runWithRetry } from './retry'
 import type {
   NormalizedGroup,
   NormalizedItem,
@@ -23,6 +26,8 @@ import type {
 import { normalizeResourcePlan } from '../shared/types'
 
 const TERMINAL_GROUP_STATUSES = new Set(['completed', 'failed', 'skipped'])
+
+type InRunLoadCache = Map<string, Promise<void>>
 
 function createRunGroupSnapshot(group: NormalizedGroup): ResourceRunGroupSnapshot {
   return {
@@ -61,13 +66,28 @@ function createActiveItemSnapshot(
   }
 }
 
-function createAbortSignal(): AbortSignal {
-  const controller = new AbortController()
-  return controller.signal
-}
-
 function createDefaultRuntimeLoader(): ResourceRuntimeLoader {
   return async () => undefined
+}
+
+function createAbortError(): DOMException | Error {
+  if (typeof DOMException !== 'undefined') {
+    return new DOMException('Aborted', 'AbortError')
+  }
+
+  const error = new Error('Aborted')
+  error.name = 'AbortError'
+  return error
+}
+
+function isResourceFailure(value: unknown): value is ReturnType<typeof createResourceFailure> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'category' in value &&
+    'code' in value &&
+    'attempt' in value
+  )
 }
 
 export { ResourceRun } from './resource-run'
@@ -87,67 +107,125 @@ export class ResourceRuntime {
   start(): ResourceRun {
     const controller = createResourceRunController(this.plan, this.options)
     const groups = normalizePlan(this.plan)
+    const runAbortController = new AbortController()
+    const activeItemControllers = new Set<AbortController>()
+
+    controller.setAbortHandler(() => {
+      const status = controller.getSnapshot().status
+      if (status === 'completed' || status === 'failed') {
+        return
+      }
+
+      if (runAbortController.signal.aborted) {
+        return
+      }
+
+      const reason = createAbortError()
+      runAbortController.abort(reason)
+      for (const activeController of activeItemControllers) {
+        activeController.abort(reason)
+      }
+      this.failRun(controller, new ResourceRunError('Resource runtime aborted'))
+    })
     controller.setSnapshot(createRunningRunSnapshot(groups))
     this.updateRunStatus(controller)
-    void this.execute(controller, groups)
+    void this.execute(
+      controller,
+      groups,
+      runAbortController.signal,
+      activeItemControllers,
+    )
     return controller.run
   }
 
   private async execute(
     controller: ResourceRunController,
     groups: NormalizedGroup[],
+    signal: AbortSignal,
+    activeItemControllers: Set<AbortController>,
   ): Promise<void> {
-    const groupResults = await Promise.allSettled(
-      groups.map((group) => this.executeGroup(controller, group)),
-    )
-    const rejectedResult = groupResults.find(
-      (result): result is PromiseRejectedResult => result.status === 'rejected',
-    )
+    const loadCache: InRunLoadCache = new Map()
+    const groupsByKey = new Map(groups.map((group) => [group.key, group]))
+    const failedGroups = new Set<string>()
 
-    if (rejectedResult) {
-      this.failRun(controller, rejectedResult.reason)
+    for (const { item } of buildPrioritySchedulingUnits(groups)) {
+      if (signal.aborted || controller.getSnapshot().status === 'failed') {
+        break
+      }
+
+      if (failedGroups.has(item.groupKey)) {
+        continue
+      }
+
+      const group = groupsByKey.get(item.groupKey)
+
+      if (!group) {
+        continue
+      }
+
+      this.markGroupStarted(controller, group.key)
+
+      const itemSucceeded = await this.executeItem(
+        controller,
+        group,
+        item,
+        signal,
+        activeItemControllers,
+        loadCache,
+      )
+      if (!itemSucceeded) {
+        failedGroups.add(group.key)
+        continue
+      }
+
+      const snapshotGroup = controller
+        .getSnapshot()
+        .groups.find((candidate) => candidate.key === group.key)
+
+      if (
+        snapshotGroup &&
+        snapshotGroup.completedItems === snapshotGroup.totalItems
+      ) {
+        this.markGroupSucceeded(controller, group.key)
+      }
+    }
+
+    if (controller.getSnapshot().status === 'failed') {
       return
     }
 
     this.completeRun(controller)
   }
 
-  private async executeGroup(
-    controller: ResourceRunController,
-    group: NormalizedGroup,
-  ): Promise<void> {
-    this.markGroupStarted(controller, group.key)
-
-    for (const item of group.items) {
-      const itemSucceeded = await this.executeItem(controller, group, item)
-      if (!itemSucceeded) {
-        return
-      }
-
-      if (controller.getSnapshot().status === 'failed') {
-        return
-      }
-    }
-
-    this.markGroupSucceeded(controller, group.key)
-  }
-
   private async executeItem(
     controller: ResourceRunController,
     group: NormalizedGroup,
     item: NormalizedItem,
+    signal: AbortSignal,
+    activeItemControllers: Set<AbortController>,
+    loadCache: InRunLoadCache,
   ): Promise<boolean> {
     const startedAt = Date.now()
     const activeItem = createActiveItemSnapshot(item, startedAt)
-    const loader = this.getLoader(item.type)
+    const itemAbortController = new AbortController()
+
+    const relayAbort = () =>
+      itemAbortController.abort(signal.reason ?? createAbortError())
+
+    if (signal.aborted) {
+      itemAbortController.abort(signal.reason ?? createAbortError())
+    } else {
+      signal.addEventListener('abort', relayAbort, { once: true })
+    }
 
     this.updateSnapshot(controller, (snapshot) => ({
       ...snapshot,
       activeItems: [...snapshot.activeItems, activeItem],
     }))
+    activeItemControllers.add(itemAbortController)
 
     try {
-      await loader(item, { signal: createAbortSignal() })
+      await this.loadItemOnce(item, itemAbortController, loadCache)
       this.updateSnapshot(controller, (snapshot) => {
         const nextGroups = snapshot.groups.map((snapshotGroup) =>
           snapshotGroup.key === group.key
@@ -168,7 +246,9 @@ export class ResourceRuntime {
       this.updateRunStatus(controller)
       return true
     } catch (cause) {
-      const failure = createResourceFailure(item, cause, 1)
+      const failure = isResourceFailure(cause)
+        ? cause
+        : createResourceFailure(item, cause, 1)
       const endedAt = Date.now()
 
       this.updateSnapshot(controller, (snapshot) => ({
@@ -198,7 +278,64 @@ export class ResourceRuntime {
       }
 
       return false
+    } finally {
+      signal.removeEventListener('abort', relayAbort)
+      activeItemControllers.delete(itemAbortController)
     }
+  }
+
+  private loadItemOnce(
+    item: NormalizedItem,
+    controller: AbortController,
+    loadCache: InRunLoadCache,
+  ): Promise<void> {
+    const existingLoad = loadCache.get(item.dedupeKey)
+
+    if (existingLoad) {
+      return existingLoad
+    }
+
+    const load = this.loadItemWithCacheAndRetry(item, controller)
+    loadCache.set(item.dedupeKey, load)
+    return load
+  }
+
+  private async loadItemWithCacheAndRetry(
+    item: NormalizedItem,
+    controller: AbortController,
+  ): Promise<void> {
+    const cached = await resolveCachedValue(this.options.cache, item)
+
+    if (cached !== undefined) {
+      return
+    }
+
+    const loader = this.getLoader(item.type)
+
+    const value = await runWithRetry(
+      () =>
+        loader(item, {
+          signal: controller.signal,
+          onProgress: (transfer) => {
+            this.markItemProgress(item, transfer)
+          },
+        }),
+      {
+        retry: this.options.retry,
+        signal: controller.signal,
+        createFailure: (cause, attempt) =>
+          createResourceFailure(item, cause, attempt),
+      },
+    )
+
+    await writeCacheValue(this.options.cache, item, value)
+  }
+
+  private markItemProgress(
+    _item: NormalizedItem,
+    _transfer: unknown,
+  ): void {
+    // Runtime snapshots do not expose per-item transfer details yet.
   }
 
   private markGroupStarted(

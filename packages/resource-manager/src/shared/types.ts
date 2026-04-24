@@ -259,9 +259,15 @@ export interface ResourceLoadContext {
   onProgress?: (transfer: ResourceTransfer) => void
 }
 
+export interface ResourceCache {
+  get(key: string): PromiseLike<unknown | undefined> | unknown | undefined
+  set(key: string, value: unknown): PromiseLike<void> | void
+}
+
 export interface ResourceRuntimeOptions {
   maxConcurrentItems?: number
   retry?: RetryOptions
+  cache?: ResourceCache
   loaders?: Partial<ResourceRuntimeLoaderRegistry>
   logger?: ResourceLogger
   logLevel?: LogLevel

@@ -243,7 +243,7 @@ describe('retry and error handling', () => {
     await expect(run.waitForAll()).rejects.toBeInstanceOf(ResourceRunError)
     expect(run.getSnapshot()).toMatchObject({
       status: 'failed',
-      errors: [{ code: 'unknown', attempt: 1 }],
+      errors: [{ code: 'unknown', attempt: 2 }],
     })
   })
 
@@ -320,7 +320,7 @@ describe('retry and error handling', () => {
     const result = await run.waitForAll()
     expect(result).toMatchObject({
       status: 'completed',
-      errors: [{ code: 'unknown', url: '/broken.png', attempt: 1 }],
+      errors: [{ code: 'unknown', url: '/broken.png', attempt: 2 }],
     })
     expect(run.getSnapshot()).toMatchObject({
       status: 'completed',

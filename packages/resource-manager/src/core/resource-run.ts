@@ -24,12 +24,14 @@ interface InternalRunState {
   snapshot: ResourceRunSnapshot
   readyWaiter: Waiter<ResourceReadyResult>
   completeWaiter: Waiter<ResourceCompleteResult>
+  abort?: () => void
 }
 
 export interface ResourceRunController {
   readonly run: ResourceRun
   getSnapshot(): ResourceRunSnapshot
   setSnapshot(snapshot: ResourceRunSnapshot): void
+  setAbortHandler(abort: () => void): void
   resolveReady(result: ResourceReadyResult): void
   rejectReady(error: unknown): void
   resolveComplete(result: ResourceCompleteResult): void
@@ -198,6 +200,10 @@ export class ResourceRun {
   waitForAll(): Promise<ResourceCompleteResult> {
     return createWaiterPromise(getInternalState(this).completeWaiter)
   }
+
+  abort(): void {
+    getInternalState(this).abort?.()
+  }
 }
 
 export function createResourceRunController(
@@ -212,6 +218,9 @@ export function createResourceRunController(
     getSnapshot: () => cloneRunSnapshot(getInternalState(run).snapshot),
     setSnapshot: (snapshot) => {
       getInternalState(run).snapshot = snapshot
+    },
+    setAbortHandler: (abort) => {
+      getInternalState(run).abort = abort
     },
     resolveReady: (result) => {
       settleWaiterResolved(getInternalState(run).readyWaiter, result)
