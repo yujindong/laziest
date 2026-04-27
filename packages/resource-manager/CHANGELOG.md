@@ -1,5 +1,11 @@
 # @laziest/resource-manager
 
+## 0.3.2
+
+### Patch Changes
+
+- Add MIT license metadata and package-level LICENSE files.
+
 ## 0.3.1
 
 ### Patch Changes
