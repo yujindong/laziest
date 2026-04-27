@@ -1,9 +1,10 @@
 {
   "name": "@laziest/resource-manager",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE"
   ],
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -25,6 +26,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
+    "prepack": "node ../../scripts/copy-root-license.mjs",
     "build": "tsdown",
     "test": "vitest run",
     "test:watch": "vitest",
