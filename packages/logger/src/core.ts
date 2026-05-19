@@ -42,7 +42,7 @@ export function createLogger(options: InternalLoggerOptions = {}): Logger {
       time: new Date(),
       level: targetLevel,
       name,
-      scope,
+      scope: [...scope],
       message,
       context,
     }
