@@ -1,8 +1,19 @@
 {
   "name": "@laziest/logger",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "license": "MIT",
+  "keywords": [
+    "util",
+    "logger",
+    "logging",
+    "typescript",
+    "browser",
+    "node",
+    "structured-logging",
+    "formatter",
+    "transport"
+  ],
   "files": [
     "dist",
     "LICENSE"

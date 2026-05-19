@@ -1,5 +1,11 @@
 # @laziest/logger
 
+## 0.2.1
+
+### Patch Changes
+
+- Add npm keywords to improve package discoverability.
+
 ## 0.2.0
 
 ### Minor Changes

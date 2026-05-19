@@ -1,5 +1,11 @@
 # @laziest/resource-manager
 
+## 0.3.3
+
+### Patch Changes
+
+- Add npm keywords to improve package discoverability.
+
 ## 0.3.2
 
 ### Patch Changes
