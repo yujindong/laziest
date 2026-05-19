@@ -9,6 +9,18 @@ function isPlainObject(value: unknown): value is PlainObject {
   return prototype === Object.prototype || prototype === null
 }
 
+function stringifyUnknownObject(value: object): string {
+  try {
+    return String(value)
+  } catch {
+    try {
+      return Object.prototype.toString.call(value)
+    } catch {
+      return '[Unserializable]'
+    }
+  }
+}
+
 function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
   if (typeof value === 'bigint') {
     return value.toString()
@@ -31,11 +43,20 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
   }
 
   if (value instanceof Error) {
-    return {
+    seen.add(value)
+
+    const serialized: PlainObject = {
       name: value.name,
       message: value.message,
       stack: value.stack,
     }
+
+    for (const [key, item] of Object.entries(value)) {
+      serialized[key] = serializeValue(item, seen)
+    }
+
+    seen.delete(value)
+    return serialized
   }
 
   if (Array.isArray(value)) {
@@ -57,7 +78,7 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
     return serialized
   }
 
-  return String(value)
+  return stringifyUnknownObject(value)
 }
 
 export function safeSerialize(value: unknown): unknown {
