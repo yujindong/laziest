@@ -111,6 +111,67 @@ describe('safeSerialize', () => {
       message: '[Thrown: message getter]',
     })
   })
+
+  it('does not throw for a Proxy with a throwing getPrototypeOf trap', () => {
+    const context = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('prototype trap')
+        },
+      },
+    )
+
+    expect(() => safeSerialize(context)).not.toThrow()
+  })
+
+  it('does not throw for a Proxy with a throwing descriptor trap', () => {
+    const context = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor() {
+          throw new Error('descriptor trap')
+        },
+        ownKeys() {
+          return ['field']
+        },
+      },
+    )
+
+    expect(safeSerialize(context)).toEqual('[Thrown: descriptor trap]')
+  })
+
+  it('preserves Error core fields when enumerable descriptor collection throws', () => {
+    const error = new Proxy(new Error('failed'), {
+      getOwnPropertyDescriptor() {
+        throw new Error('descriptor trap')
+      },
+      ownKeys() {
+        return ['field']
+      },
+    })
+
+    const serialized = safeSerialize(error)
+
+    expect(serialized).toMatchObject({
+      name: 'Error',
+      message: 'failed',
+      fields: '[Thrown: descriptor trap]',
+    })
+    expect(serialized).toHaveProperty('stack')
+  })
+
+  it('handles an array with a throwing accessor element', () => {
+    const values = ['ok']
+    Object.defineProperty(values, '1', {
+      enumerable: true,
+      get() {
+        throw new Error('array getter')
+      },
+    })
+
+    expect(safeSerialize(values)).toEqual(['ok', '[Thrown: array getter]'])
+  })
 })
 
 describe('renderInlineContext', () => {
@@ -157,5 +218,18 @@ describe('renderInlineContext', () => {
 
     expect(() => renderInlineContext(error)).not.toThrow()
     expect(renderInlineContext(error)).toContain('stack="[Thrown: stack getter]"')
+  })
+
+  it('does not throw for a Proxy with a throwing getPrototypeOf trap', () => {
+    const context = new Proxy(
+      {},
+      {
+        getPrototypeOf() {
+          throw new Error('prototype trap')
+        },
+      },
+    )
+
+    expect(() => renderInlineContext(context)).not.toThrow()
   })
 })

@@ -5,7 +5,14 @@ function isPlainObject(value: unknown): value is PlainObject {
     return false
   }
 
-  const prototype = Object.getPrototypeOf(value)
+  let prototype: object | null
+
+  try {
+    prototype = Object.getPrototypeOf(value)
+  } catch {
+    return false
+  }
+
   return prototype === Object.prototype || prototype === null
 }
 
@@ -21,6 +28,14 @@ function stringifyUnknownObject(value: object): string {
   }
 }
 
+function isError(value: object): value is Error {
+  try {
+    return value instanceof Error
+  } catch {
+    return false
+  }
+}
+
 function readProperty(value: object, key: PropertyKey): unknown {
   try {
     return Reflect.get(value, key)
@@ -30,7 +45,7 @@ function readProperty(value: object, key: PropertyKey): unknown {
 }
 
 function thrownPlaceholder(error: unknown): string {
-  if (!(error instanceof Error)) {
+  if (error === null || typeof error !== 'object' || !isError(error)) {
     return '[Thrown]'
   }
 
@@ -41,9 +56,15 @@ function thrownPlaceholder(error: unknown): string {
   }
 }
 
-function serializeEnumerableProperties(value: object, seen: WeakSet<object>): PlainObject {
+function serializeEnumerableProperties(value: object, seen: WeakSet<object>): PlainObject | string {
   const serialized: PlainObject = {}
-  const descriptors = Object.getOwnPropertyDescriptors(value)
+  let descriptors: PropertyDescriptorMap
+
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value)
+  } catch (error) {
+    return thrownPlaceholder(error)
+  }
 
   for (const [key, descriptor] of Object.entries(descriptors)) {
     if (!descriptor.enumerable) {
@@ -64,6 +85,21 @@ function serializeEnumerableProperties(value: object, seen: WeakSet<object>): Pl
     }
   }
 
+  return serialized
+}
+
+function serializeArray(value: readonly unknown[], seen: WeakSet<object>): unknown[] {
+  seen.add(value)
+
+  const length = readProperty(value, 'length')
+  const serializedLength = typeof length === 'number' && Number.isSafeInteger(length) ? length : 0
+  const serialized = new Array<unknown>(serializedLength)
+
+  for (let index = 0; index < serializedLength; index += 1) {
+    serialized[index] = serializeValue(readProperty(value, index), seen)
+  }
+
+  seen.delete(value)
   return serialized
 }
 
@@ -88,7 +124,7 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
     return '[Circular]'
   }
 
-  if (value instanceof Error) {
+  if (isError(value)) {
     seen.add(value)
 
     const serialized: PlainObject = {
@@ -96,18 +132,20 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
       message: readProperty(value, 'message'),
       stack: readProperty(value, 'stack'),
     }
+    const fields = serializeEnumerableProperties(value, seen)
 
-    Object.assign(serialized, serializeEnumerableProperties(value, seen))
+    if (typeof fields === 'string') {
+      serialized.fields = fields
+    } else {
+      Object.assign(serialized, fields)
+    }
 
     seen.delete(value)
     return serialized
   }
 
   if (Array.isArray(value)) {
-    seen.add(value)
-    const serialized = value.map((item) => serializeValue(item, seen))
-    seen.delete(value)
-    return serialized
+    return serializeArray(value, seen)
   }
 
   if (isPlainObject(value)) {
