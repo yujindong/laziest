@@ -1,2 +1,2 @@
-// Scaffold-only entry point; logger implementation will be added in later tasks.
-export {}
+export { shouldLog } from './levels'
+export type * from './types'
