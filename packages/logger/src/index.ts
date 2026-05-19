@@ -1,2 +1,5 @@
+export { formatCompact } from './formatters/compact'
+export { formatJson } from './formatters/json'
+export { formatPretty } from './formatters/pretty'
 export { shouldLog } from './levels'
 export type * from './types'
