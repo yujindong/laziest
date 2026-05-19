@@ -1,3 +1,4 @@
+export { createLogger } from './core'
 export { formatCompact } from './formatters/compact'
 export { formatJson } from './formatters/json'
 export { formatPretty } from './formatters/pretty'
