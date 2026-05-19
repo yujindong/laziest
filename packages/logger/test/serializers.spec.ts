@@ -78,6 +78,24 @@ describe('safeSerialize', () => {
       },
     })
   })
+
+  it('preserves Error fields when an enumerable getter throws', () => {
+    const error = new Error('failed')
+
+    Object.defineProperty(error, 'field', {
+      enumerable: true,
+      get() {
+        throw new Error('bad getter')
+      },
+    })
+
+    expect(safeSerialize(error)).toEqual({
+      name: 'Error',
+      message: 'failed',
+      stack: error.stack,
+      field: '[Thrown: bad getter]',
+    })
+  })
 })
 
 describe('renderInlineContext', () => {
@@ -101,5 +119,15 @@ describe('renderInlineContext', () => {
     }
 
     expect(() => renderInlineContext(new Hostile())).not.toThrow()
+  })
+
+  it('does not throw on a plain object with an enumerable getter that throws', () => {
+    const context = {
+      get field() {
+        throw new Error('bad getter')
+      },
+    }
+
+    expect(renderInlineContext(context)).toBe('field="[Thrown: bad getter]"')
   })
 })

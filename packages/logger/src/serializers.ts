@@ -21,6 +21,36 @@ function stringifyUnknownObject(value: object): string {
   }
 }
 
+function thrownPlaceholder(error: unknown): string {
+  return error instanceof Error && error.message ? `[Thrown: ${error.message}]` : '[Thrown]'
+}
+
+function serializeEnumerableProperties(value: object, seen: WeakSet<object>): PlainObject {
+  const serialized: PlainObject = {}
+  const descriptors = Object.getOwnPropertyDescriptors(value)
+
+  for (const [key, descriptor] of Object.entries(descriptors)) {
+    if (!descriptor.enumerable) {
+      continue
+    }
+
+    if ('value' in descriptor) {
+      serialized[key] = serializeValue(descriptor.value, seen)
+      continue
+    }
+
+    if (descriptor.get) {
+      try {
+        serialized[key] = serializeValue(descriptor.get.call(value), seen)
+      } catch (error) {
+        serialized[key] = thrownPlaceholder(error)
+      }
+    }
+  }
+
+  return serialized
+}
+
 function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
   if (typeof value === 'bigint') {
     return value.toString()
@@ -51,9 +81,7 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
       stack: value.stack,
     }
 
-    for (const [key, item] of Object.entries(value)) {
-      serialized[key] = serializeValue(item, seen)
-    }
+    Object.assign(serialized, serializeEnumerableProperties(value, seen))
 
     seen.delete(value)
     return serialized
@@ -68,12 +96,7 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
 
   if (isPlainObject(value)) {
     seen.add(value)
-    const serialized: PlainObject = {}
-
-    for (const [key, item] of Object.entries(value)) {
-      serialized[key] = serializeValue(item, seen)
-    }
-
+    const serialized = serializeEnumerableProperties(value, seen)
     seen.delete(value)
     return serialized
   }
