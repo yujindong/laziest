@@ -21,8 +21,24 @@ function stringifyUnknownObject(value: object): string {
   }
 }
 
+function readProperty(value: object, key: PropertyKey): unknown {
+  try {
+    return Reflect.get(value, key)
+  } catch (error) {
+    return thrownPlaceholder(error)
+  }
+}
+
 function thrownPlaceholder(error: unknown): string {
-  return error instanceof Error && error.message ? `[Thrown: ${error.message}]` : '[Thrown]'
+  if (!(error instanceof Error)) {
+    return '[Thrown]'
+  }
+
+  try {
+    return error.message ? `[Thrown: ${error.message}]` : '[Thrown]'
+  } catch {
+    return '[Thrown]'
+  }
 }
 
 function serializeEnumerableProperties(value: object, seen: WeakSet<object>): PlainObject {
@@ -76,9 +92,9 @@ function serializeValue(value: unknown, seen: WeakSet<object>): unknown {
     seen.add(value)
 
     const serialized: PlainObject = {
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
+      name: readProperty(value, 'name'),
+      message: readProperty(value, 'message'),
+      stack: readProperty(value, 'stack'),
     }
 
     Object.assign(serialized, serializeEnumerableProperties(value, seen))

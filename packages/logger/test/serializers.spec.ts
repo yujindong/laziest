@@ -96,6 +96,21 @@ describe('safeSerialize', () => {
       field: '[Thrown: bad getter]',
     })
   })
+
+  it('does not throw when Error.message getter throws', () => {
+    const error = new Error('failed')
+
+    Object.defineProperty(error, 'message', {
+      get() {
+        throw new Error('message getter')
+      },
+    })
+
+    expect(safeSerialize(error)).toMatchObject({
+      name: 'Error',
+      message: '[Thrown: message getter]',
+    })
+  })
 })
 
 describe('renderInlineContext', () => {
@@ -129,5 +144,18 @@ describe('renderInlineContext', () => {
     }
 
     expect(renderInlineContext(context)).toBe('field="[Thrown: bad getter]"')
+  })
+
+  it('does not throw when Error.stack getter throws', () => {
+    const error = new Error('failed')
+
+    Object.defineProperty(error, 'stack', {
+      get() {
+        throw new Error('stack getter')
+      },
+    })
+
+    expect(() => renderInlineContext(error)).not.toThrow()
+    expect(renderInlineContext(error)).toContain('stack="[Thrown: stack getter]"')
   })
 })
